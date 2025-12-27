@@ -49,7 +49,8 @@ impl REPL {
                             return false;
                         }
                     };
-
+                    
+                    #[cfg(debug_assertions)]
                     println!("{assign:?}");
                     let (n, v) = match eval_assign(assign, &self.vars) {
                         Ok(tuple) => tuple,
@@ -77,6 +78,7 @@ impl REPL {
                                 return false;
                             }
                         };
+                        #[cfg(debug_assertions)]
                         println!("{expr:?}");
                         let res = match eval_expr(expr, &self.vars){
                             Ok(r) => r,
