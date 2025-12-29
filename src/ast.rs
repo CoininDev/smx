@@ -10,6 +10,7 @@ pub struct Program {
 pub enum Expression {
     Var(String),
     Num(f64),
+    Bool(bool),
     Lambda(String, Box<Expression>),
     Application(Box<Expression>, Box<Expression>),
     Parenthed(Box<Expression>),
@@ -24,6 +25,7 @@ impl Display for Expression {
             Expression::Lambda(arg, body) => write!(f, "\\{arg}. {body}"),
             Expression::Parenthed(a) => write!(f, "({a})"),
             Expression::Application(a, b) => write!(f, "{a} {b}"),
+            Expression::Bool(b) => write!(f, "{b}"),
             Expression::Operation(op, e) => {
                 write!(f, "({op}")?;
                 for expr in e {
@@ -43,11 +45,36 @@ pub struct Parser {
     pos: usize,
 }
 
+pub fn unary_binding_power(op: &str) -> (f32, f32) {
+    match op {
+        "-" | "+" | "!" => (3.0, 3.1),
+        _ => panic!("unknown unary op: {op}"),
+    }
+}
+
+pub fn binding_power(op: &str) -> (f32, f32) {
+    match op {
+        "+" | "-" => (6., 6.1),
+        "*" | "/" => (7., 7.1),
+        "<" | ">" | "==" | ">=" | "<=" | "!=" => (5.0, 5.1),
+        "||" | "&&" => (4., 4.1),
+        "," => (3.6, 3.5),
+        ":" => (3., 3.1),
+        "?" => (2., 2.1),
+        "<APPLY>" => (10., 10.1),
+        _ => (8., 8.1),
+    }
+}
+
 pub type ParseResult<T> = Result<T, ParsingError>;
 
 impl Parser {
     pub fn peek(&self, p: usize) -> Option<&Token> {
         self.tokens.get(self.pos + p)
+    }
+
+    pub fn reset(&mut self) {
+        self.pos = 0;
     }
 
     pub fn peek_type(&self, p: usize) -> Option<&TokenType> {
@@ -115,6 +142,18 @@ impl Parser {
         Ok(Program { body: buf })
     }
 
+    pub fn parse_keyword(&mut self, k: Keyword) -> ParseResult<Expression> {
+        match k {
+            Keyword::True  => Ok(Expression::Bool(true)),
+            Keyword::False => Ok(Expression::Bool(false)),
+
+            _ => return Err(ParsingError::InvalidExpression(format!(
+                    "Unexpected token on parse_keyword : {:?}",
+                    self.peek_type(0)
+                ))),
+        }
+    }
+
     pub fn parse_assign(&mut self) -> ParseResult<Assign> {
         let id = match self.peek_type(0) {
             Some(TokenType::Ident(a)) => a.clone(),
@@ -144,7 +183,7 @@ impl Parser {
         let arg = match self.peek_type(0) {
             Some(TokenType::Ident(x)) => x.clone(),
             _ => return Err(ParsingError::InvalidExpression(format!(
-                    "Unexpected token: {:?}",
+                    "Unexpected token on parse_lambda: {:?}",
                     self.peek_type(0)
                 )))        
         }; self.next();
@@ -154,22 +193,27 @@ impl Parser {
         
         Ok(Expression::Lambda(arg.to_string(), Box::new(body)))
     }
-
-    pub fn parse_expr_pratt(&mut self, min_bp: f32) -> ParseResult<Expression> {
-        let mut lhs = match self.next() {
+        
+    pub fn parse_term(&mut self) -> ParseResult<Expression> {
+        match self.next() {
             Some(Token {
                 token_type: TokenType::Number(n),
                 ..
-            }) => Expression::Num(n),
+            }) => Ok(Expression::Num(n)),
             Some(Token {
                 token_type: TokenType::Ident(i),
                 ..
-            }) => Expression::Var(i),
+            }) => Ok(Expression::Var(i)),
 
             Some(Token {
                 token_type: TokenType::Backslash,
                 ..
-            }) => self.parse_lambda()?,
+            }) => self.parse_lambda(),
+
+            Some(Token {
+                token_type: TokenType::Keyword(k),
+                ..
+            }) => self.parse_keyword(k),
 
             Some(Token {
                 token_type: TokenType::LParen,
@@ -180,13 +224,11 @@ impl Parser {
                     Some(Token {
                         token_type: TokenType::RParen,
                         ..
-                    }) => Expression::Parenthed(Box::new(expr)),
-                    other => {
-                        return Err(ParsingError::Expected(
+                    }) => Ok(expr),
+                    other => Err(ParsingError::Expected(
                             ")".to_string(),
                             format!("{:?}", other.map(|t| t.token_type)),
-                        ))
-                    }
+                    )),
                 }
             }
 
@@ -196,17 +238,20 @@ impl Parser {
             }) if is_valid_unary(op.as_str()) => {
                 let (_, bp_r) = unary_binding_power(&op);
                 let rhs = self.parse_expr_pratt(bp_r)?;
-                Expression::Operation(op.clone(), vec![rhs])
+                Ok(Expression::Operation(op.clone(), vec![rhs]))
             }
-            Some(token) => {
-                return Err(ParsingError::InvalidExpression(format!(
-                    "Unexpected token: {:?}",
-                    token.token_type
-                )))
-            }
-            None => return Err(ParsingError::UnexpectedEof),
-        };
 
+            Some(token) => Err(ParsingError::InvalidExpression(format!(
+                    "Unexpected token on parse_expr_pratt: {:?}",
+                    token.token_type
+            ))),
+
+            None => return Err(ParsingError::UnexpectedEof),
+        }
+    }
+
+    pub fn parse_expr_pratt(&mut self, min_bp: f32) -> ParseResult<Expression> {
+        let mut lhs = self.parse_term()?;
         loop {
             let op = match self.peek_type(0) {
                 None | Some(TokenType::EndExpr) | Some(TokenType::RParen) => break,

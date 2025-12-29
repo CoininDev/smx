@@ -34,6 +34,7 @@ pub fn eval_expr(e: Expression, vars: &Environment) -> EvalResult<Value> {
         Expression::Num(i) => Ok(Value::Num(i)),
         Expression::Parenthed(f) => eval_expr(*f, vars),
         Expression::Operation(op, exprs) => eval_operation(op, exprs, vars),
+        Expression::Bool(b) => Ok(Value::Bool(b)),
         Expression::Lambda(arg, body) => Ok(Value::Lambda(arg, *body, vars.clone())),
         Expression::Application(f, x) => apply(eval_expr(*f, vars)?, eval_expr(*x, vars)?),
     }
@@ -78,6 +79,48 @@ pub fn eval_operation(op: String, exprs: Vec<Expression>, vars: &Environment) ->
             ,
             _ => Err(EvalError::InvalidSizeOfArgsFor("/".to_string())),
         }, 
+        "<" => match exprs.as_slice() {
+            [left, right] => Ok(Value::Bool(eval(left)? < eval(right)?)),
+            _ => Err(EvalError::InvalidSizeOfArgsFor("/".to_string())),
+        },
+        ">" => match exprs.as_slice() {
+            [left, right] => Ok(Value::Bool(eval(left)? > eval(right)?)),
+            _ => Err(EvalError::InvalidSizeOfArgsFor("/".to_string())),
+        },
+        "<=" => match exprs.as_slice() {
+            [left, right] => Ok(Value::Bool(eval(left)? <= eval(right)?)),
+            _ => Err(EvalError::InvalidSizeOfArgsFor("/".to_string())),
+        },
+        ">=" => match exprs.as_slice() {
+            [left, right] => Ok(Value::Bool(eval(left)? >= eval(right)?)),
+            _ => Err(EvalError::InvalidSizeOfArgsFor("/".to_string())),
+        },
+        "==" => match exprs.as_slice() {
+            [left, right] => Ok(Value::Bool(eval(left)? == eval(right)?)),
+            _ => Err(EvalError::InvalidSizeOfArgsFor("/".to_string())),
+        },
+        "!=" => match exprs.as_slice() {
+            [left, right] => Ok(Value::Bool(eval(left)? != eval(right)?)),
+            _ => Err(EvalError::InvalidSizeOfArgsFor("/".to_string())),
+        },
+        "||" => match exprs.as_slice() {
+            [left, right] => match (eval(left)?, eval(right)?) {
+                (Value::Bool(a), Value::Bool(b)) => Ok(Value::Bool(a || b)),
+                _ => Err(EvalError::WrongTypes("||".to_string(), 
+                            vec![Value::Bool(true), Value::Bool(true)],
+                            vec![eval(left)?, eval(right)?])),
+            }
+            _ => Err(EvalError::InvalidSizeOfArgsFor("/".to_string())),
+        }
+        "&&" => match exprs.as_slice() {
+            [left, right] => match (eval(left)?, eval(right)?) {
+                (Value::Bool(a), Value::Bool(b)) => Ok(Value::Bool(a && b)),
+                _ => Err(EvalError::WrongTypes("&&".to_string(), 
+                            vec![Value::Bool(true), Value::Bool(true)],
+                            vec![eval(left)?, eval(right)?])),
+            }
+            _ => Err(EvalError::InvalidSizeOfArgsFor("/".to_string())),
+        }
         _ => Err(EvalError::UnexpectedOperator(format!("{op}"))),
     }
 }

@@ -66,6 +66,7 @@ pub enum EvalError {
     VariableDoesNotExists(String),
     InvalidSizeOfArgsFor(String),
     UnexpectedOperator(String),
+    WrongTypes(String, Vec<Value>, Vec<Value>), // operator, expected, received
     ZeroDivisor,
     NonFunctionApplication(Value),
 }
@@ -77,6 +78,19 @@ impl fmt::Display for EvalError {
             Self::InvalidSizeOfArgsFor(op) => write!(f, "Invalid size of args for {op}"),
             Self::UnexpectedOperator(op) => write!(f, "Unexpected operator {op}"),
             Self::ZeroDivisor => write!(f, "Dividing by zero is not allowed"),
+            Self::WrongTypes(op, exp, received) => {
+                write!(f, "Wrong types:")?;
+                write!(f, "\nexpected: (")?;
+                for x in exp.iter() {
+                    write!(f, "{x} ")?;
+                }
+                write!(f, ")")?;
+                write!(f, "\nreceived: (")?;
+                for x in received.iter() {
+                    write!(f, "{x} ")?;
+                }
+                write!(f, ")")
+            }
             Self::NonFunctionApplication(v) => write!(f, "Tryng to apply something that is not a function: {v}"),
         }
     }

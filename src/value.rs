@@ -1,12 +1,13 @@
 use crate::{ast::*, eval::*, error::EvalError};
-use std::{collections::HashMap, fmt};
+use std::{collections::HashMap, fmt, cmp::Ordering};
 
 
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Value {
     Num(f64),
     Lambda(String, Expression, Environment),
+    Bool(bool),
     Nil,
 }
 
@@ -15,7 +16,19 @@ impl std::fmt::Display for Value {
         match self {
             Self::Num(x) => write!(f, "{x}"),
             Self::Lambda(arg, body, _) => write!(f, "\\{arg}. {body}"),
+            Self::Bool(b) => write!(f, "{b}"),
             Self::Nil => write!(f, "nil")
+        }
+    }
+}
+
+impl PartialOrd for Value {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        match (self, other) {
+            (Value::Num(a), Value::Num(b)) => a.partial_cmp(b),
+            (Value::Bool(a), Value::Bool(b)) => a.partial_cmp(b),
+            (Value::Nil, Value::Nil) => Some(Ordering::Equal),
+            _ => None,
         }
     }
 }

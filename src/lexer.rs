@@ -1,5 +1,8 @@
 use std::fmt;
+use std::str::FromStr;
 use crate::error::LexerError;
+use strum_macros::Display;
+
 
 pub struct Lexer {
     text: String,
@@ -24,6 +27,12 @@ pub struct Token {
     pub token_type: TokenType,
 }
 
+impl fmt::Display for Token {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{:?}", self.token_type)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum TokenType {
     Number(f64),
@@ -32,6 +41,7 @@ pub enum TokenType {
     Op(String),
     Assign,
     Ident(String),
+    Keyword(Keyword),
     EndExpr,
     Backslash,
     Dot,
@@ -46,6 +56,7 @@ impl fmt::Display for TokenType {
             Self::Op(s) => write!(f,"{s}"),
             Self::Assign => write!(f,"="),
             Self::Ident(s) => write!(f,"{s}"),
+            Self::Keyword(s) => write!(f,"{s:?}"),
             Self::EndExpr => write!(f,"$"),
             Self::Backslash => write!(f, "\\"),
             Self::Dot => write!(f, "."),
@@ -53,25 +64,33 @@ impl fmt::Display for TokenType {
     }
 }
 
-pub fn binding_power(op: &str) -> (f32, f32) {
-    match op {
-        "+" | "-" => (1., 1.1),
-        "*" | "/" => (2., 2.1),
-        "<APPLY>" => (5., 5.1),
-        _ => (3., 3.1),
-    }
+fn op_alphabet() -> &'static str {
+    "+-*/<>=?&|"
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Display)]
+pub enum Keyword {
+    #[strum(to_string = "true")]
+    True,
+    #[strum(to_string = "false")]
+    False
+}
+
+impl FromStr for Keyword {
+   type Err = ();
+
+   fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "true"  => Ok(Keyword::True),
+            "false" => Ok(Keyword::False),
+            _ => Err(()),
+        }
+   }
 }
 
 pub fn is_valid_unary(op: &str) -> bool {
     let valid = vec!["+", "-", "!"];
     valid.contains(&op)
-}
-
-pub fn unary_binding_power(op: &str) -> (f32, f32) {
-    match op {
-        "-" | "+" | "!" => (3.0, 3.1),
-        _ => panic!("unknown unary op: {op}"),
-    }
 }
 
 pub type LexResult<T> = Result<T, LexerError>;
@@ -82,56 +101,60 @@ impl Iterator for Lexer {
         if self.pos >= self.text.len() {
             return None;
         }
-
         let slice = &self.text[self.pos..];
-        let ch = slice.chars().next().unwrap();
-        let ch_len = ch.len_utf8();
+        let chars: Vec<char>= slice.chars().collect();
+        let first_ch_len = chars[0].len_utf8();
         
         let advance = |this: &mut Lexer, nbytes: usize| {
             this.pos += nbytes;
         };
 
-        advance(self, ch_len);
-        match ch {
-            ' ' | '\t' => {
+        let line = self.current_line;
+        let mount_token = |mam: TokenType| {
+            Some(Ok(Token {
+                line,
+                token_type: mam,
+            }))
+        };
+
+        advance(self, first_ch_len);
+        match chars.as_slice() {
+            [' ', ..] | ['\t', ..] => self.next(),
+
+            ['=', x, ..] if *x != '=' => mount_token(TokenType::Assign),
+
+            [u, ..] if op_alphabet().contains(*u) => {
+                let mut buf = String::from(*u);
+                while self.pos < self.text.len() {
+                    let next_slice = &self.text[self.pos..];
+                    let next_ch = next_slice.chars().next().unwrap();
+                    if op_alphabet().contains(next_ch) {
+                        buf.push(next_ch);
+                        advance(self, next_ch.len_utf8());
+                    } else {
+                        break;
+                    }
+                }
+                mount_token(TokenType::Op(buf))
+            }
+
+            ['(', ..] => mount_token(TokenType::LParen),
+
+            [')', ..] => mount_token(TokenType::RParen),
+
+            ['\n', ..] => {
+                self.current_line += 1;
                 self.next()
             }
-            '=' => Some(Ok(Token {
-                line: self.current_line,
-                token_type: TokenType::Assign,
-            })),
-            '+' | '-' | '*' | '/' => Some(Ok(Token {
-                line: self.current_line,
-                token_type: TokenType::Op(ch.to_string()),
-            })),
-            '(' => Some(Ok(Token {
-                line: self.current_line,
-                token_type: TokenType::LParen,
-            })),
-            ')' => Some(Ok(Token {
-                line: self.current_line,
-                token_type: TokenType::RParen,
-            })),
-            '\n' => {
-                self.current_line += 1;
-                Some(Ok(Token {
-                    line: self.current_line,
-                    token_type: TokenType::EndExpr,
-                }))
-            }
-            '\\' => Some(Ok(Token {
-                    line: self.current_line,
-                    token_type: TokenType::Backslash,
-            })),
-            '.' => Some(Ok(Token{
-                    line: self.current_line,
-                    token_type: TokenType::Dot,
-            })),
 
-            d if d.is_ascii_digit() || d == '.' => {
-                let mut seen_dot = d == '.';
+            ['\\', ..] => mount_token(TokenType::Backslash),
+
+            ['.', ..] => mount_token(TokenType::Dot),
+
+            [d, ..] if d.is_ascii_digit() || *d == '.' => {
+                let mut seen_dot = *d == '.';
                 let mut buf = String::new();
-                buf.push(d);
+                buf.push(*d);
 
                 while self.pos < self.text.len() {
                     let next_slice = &self.text[self.pos..];
@@ -157,18 +180,16 @@ impl Iterator for Lexer {
                 }
 
                 match buf.parse::<f64>() {
-                    Ok(number) => Some(Ok(Token {
-                        line: self.current_line,
-                        token_type: TokenType::Number(number),
-                    })),
+                    Ok(number) => mount_token(TokenType::Number(number)),
                     Err(e) => Some(Err(LexerError::ParseError(
                         buf,
                         format!("Falha ao analisar número: {}", e),
                     ))),
                 }
             }
-            c if c.is_alphabetic() || c == '_' => {
-                let mut buf = String::from(c);
+
+            [c, ..] if c.is_alphabetic() || *c == '_' => {
+                let mut buf = String::from(*c);
                 while self.pos < self.text.len() {
                     let next_slice = &self.text[self.pos..];
                     let next_ch = next_slice.chars().next().unwrap();
@@ -179,12 +200,17 @@ impl Iterator for Lexer {
                         break;
                     }
                 }
-                Some(Ok(Token {
-                    line: self.current_line,
-                    token_type: TokenType::Ident(buf),
-                }))
+
+                if let Ok(x) = Keyword::from_str(buf.as_str()) {
+                    mount_token(TokenType::Keyword(x))
+                } else {
+                    mount_token(TokenType::Ident(buf))
+                }
             }
-            _ => Some(Err(LexerError::UnrecognizedChar(ch))),
+
+            [ch, ..] => Some(Err(LexerError::UnrecognizedChar(*ch))),
+            &[] => None
         }
     }
 }
+
