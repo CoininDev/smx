@@ -1,5 +1,5 @@
 use rustyline::{DefaultEditor, error::ReadlineError};
-use std::collections::HashMap;
+use im::HashMap;
 
 use crate::{
     ast::Parser,
@@ -41,98 +41,52 @@ impl REPL {
                 };
 
                 let mut parser = Parser::new(tk);
-                if let Ok(assign) = parser.parse_assign() {
-                    #[cfg(debug_assertions)]
-                    println!("{assign:?}");
-                    let (n, v) = match eval_assign(assign, &self.vars) {
-                        Ok(tuple) => tuple,
-                        Err(e) => {
-                            eprintln!("Eval Error: {e}");
-                            return false;
-                        }
-                    };
-                    println!("< {n} = {v}");
-                    self.vars.insert(n, v);
-                    return false;
-                }
+                
+                let assign = parser.parse_assign();
+                let assign_pos = parser.pos;
                 parser.reset();
-                if let Ok(expr) = parser.parse_expr_pratt(0.) {
-                    #[cfg(debug_assertions)]
-                    println!("{expr:?}");
-                    let res = match eval_expr(expr, &self.vars){
-                        Ok(r) => r,
-                        Err(e) => {
+                let expr = parser.parse_expr_pratt(0.);
+                let expr_pos = parser.pos;
+
+                match (assign, expr) {
+                    (Ok(assign), _) => {
+                        #[cfg(debug_assertions)]
+                        println!("(debug)\tAST: {assign:#?}");
+
+                        if let Err(e) = eval_assign(assign, &mut self.vars) {
                             eprintln!("Eval Error: {e}");
                             return false;
                         }
-                    };
-                    println!("= {res}");
-                    return false;
-                }
+                        
+                        println!("Ok");
+                        return false;
+                    }
 
-                println!("houve um erro, não é uma expressão e nem uma assign");
+                    (Err(_), Ok(expr)) => {
+                        #[cfg(debug_assertions)]
+                        println!("(debug)\tAST: {expr:#?}");
+                        let res = match eval_expr(expr, &self.vars){
+                            Ok(r) => r,
+                            Err(e) => {
+                                eprintln!("Eval Error: {e}");
+                                return false;
+                            }
+                        };
+                        println!("= {res}");
+                        return false;
+                    }
+
+                    (Err(a), Err(b)) => {
+                        if assign_pos >= expr_pos {
+                            println!("Assign Err: {}", a);
+                        } else {
+                            println!("Expr Err: {}", b);
+                        }
+                    }
+                }
                 false
-                  /////////
-                 // OLD //
-                /////////
-            //     if line.contains("=") {
-            //         let assign = match parser.parse_assign() {
-            //             Ok(p) => p,
-            //             Err(e) => {
-            //                 eprintln!("Parsing Error: {e}");
-            //                 self.rl.add_history_entry(&line).unwrap();
-            //                 return false;
-            //             }
-            //         };
-            //
-            //         #[cfg(debug_assertions)]
-            //         println!("{assign:?}");
-            //         let (n, v) = match eval_assign(assign, &self.vars) {
-            //             Ok(tuple) => tuple,
-            //             Err(e) => {
-            //                 eprintln!("Eval Error: {e}");
-            //                 self.rl.add_history_entry(&line).unwrap();
-            //                 return false;
-            //             }
-            //         };
-            //         println!("< {n} = {v}");
-            //         self.vars.insert(n, v);
-            //     } else {
-            //         if line.chars().all(|c| c.is_alphabetic() || c == '_') {
-            //             let v = self.vars.get(&line);
-            //             match v {
-            //                 Some(a) => println!("= {a}"),
-            //                 None => eprintln!("This variable does not exist"),
-            //             }
-            //         } else {
-            //             let expr = match parser.parse_expr_pratt(0.){
-            //                 Ok(p) => p,
-            //                 Err(e) => {
-            //                     eprintln!("Parsing Error: {e}");
-            //                     self.rl.add_history_entry(&line).unwrap();
-            //                     return false;
-            //                 }
-            //             };
-            //             #[cfg(debug_assertions)]
-            //             println!("{expr:?}");
-            //             let res = match eval_expr(expr, &self.vars){
-            //                 Ok(r) => r,
-            //                 Err(e) => {
-            //                     eprintln!("Eval Error: {e}");
-            //                     self.rl.add_history_entry(&line).unwrap();
-            //                     return false;
-            //                 }
-            //             };
-            //
-            //             println!("= {res}");
-            //         }
-            //     }
-            //
-            //     self.rl.add_history_entry(&line).unwrap();
-            //
-            //     println!("<-------------------------->");
-            //     false
             }
+
             Err(ReadlineError::Interrupted) => true,
             Err(ReadlineError::Eof) => true,
             Err(e) => {
@@ -151,7 +105,7 @@ impl REPL {
         }
 
         if cfg!(debug_assertions) {
-            print!("Tokens: ");
+            print!("(debug)\tTokens: ");
             println!("{}", vlex.iter().map(|t| t.to_string()).collect::<Vec<_>>().join(", "));
         }
         Ok(vlex)

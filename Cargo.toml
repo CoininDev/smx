@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+im = "15.1.0"
 qbe = "2.5.1"
 rustyline = "17.0.2"
 strum = "0.27.2"

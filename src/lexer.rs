@@ -12,7 +12,7 @@ pub struct Lexer {
 
 impl Lexer {
     pub fn new(text: &str) -> Self {
-        let mut text = String::from(text);
+        let text = String::from(text);
         Self {
             text,
             pos: 0,
@@ -65,7 +65,7 @@ impl fmt::Display for TokenType {
 }
 
 fn op_alphabet() -> &'static str {
-    "+-*/<>=?&|"
+    "+-*/<>=!?&|,"
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Display)]
@@ -73,7 +73,9 @@ pub enum Keyword {
     #[strum(to_string = "true")]
     True,
     #[strum(to_string = "false")]
-    False
+    False,
+    #[strum(to_string = "nil")]
+    Nil,
 }
 
 impl FromStr for Keyword {
@@ -83,6 +85,7 @@ impl FromStr for Keyword {
         match s {
             "true"  => Ok(Keyword::True),
             "false" => Ok(Keyword::False),
+            "nil"   => Ok(Keyword::Nil),
             _ => Err(()),
         }
    }
@@ -141,6 +144,7 @@ impl Iterator for Lexer {
             ['(', ..] => mount_token(TokenType::LParen),
 
             [')', ..] => mount_token(TokenType::RParen),
+            [';', ..] => mount_token(TokenType::EndExpr),
 
             ['\n', ..] => {
                 self.current_line += 1;

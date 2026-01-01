@@ -1,14 +1,32 @@
-use crate::{ast::*, eval::*, error::EvalError};
-use std::{collections::HashMap, fmt, cmp::Ordering};
+use crate::{ast::*, eval::*};
+use std::cmp::Ordering;
 
 
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Value {
     Num(f64),
-    Lambda(String, Expression, Environment),
+    Lambda(Pattern, Expression, Environment),
     Bool(bool),
+    Pair(Box<Value>, Box<Value>),
     Nil,
+}
+
+#[derive(Debug, Clone, PartialEq, Hash, Eq)]
+pub enum Pattern {
+    Name(String),
+    Pair(Box<Pattern>, Box<Pattern>),
+    Wildcard,
+}
+
+impl std::fmt::Display for Pattern {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Name(x)    => write!(f, "{x}"),
+            Self::Pair(a, b) => write!(f, "({}, {})", *a, *b),
+            Self::Wildcard   => write!(f, "_"),
+        }
+    }
 }
 
 impl std::fmt::Display for Value {
@@ -17,6 +35,7 @@ impl std::fmt::Display for Value {
             Self::Num(x) => write!(f, "{x}"),
             Self::Lambda(arg, body, _) => write!(f, "\\{arg}. {body}"),
             Self::Bool(b) => write!(f, "{b}"),
+            Self::Pair(a, b) => write!(f, "({}, {})", *a, *b),
             Self::Nil => write!(f, "nil")
         }
     }

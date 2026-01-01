@@ -1,0 +1,2 @@
+isso_eh_um = \a. (a == 1);
+result = isso_eh_um 1;

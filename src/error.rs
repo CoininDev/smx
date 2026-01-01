@@ -1,5 +1,6 @@
 use std::{fmt, error::Error};
 use crate::value::*;
+use crate::ast::*;
 
 // =======================================
 // =========== Lexer Error ===============
@@ -50,7 +51,7 @@ impl fmt::Display for ParsingError {
             ParsingError::Expected(e, found) => write!(f, "Expected a '{e:?}', but found '{found:?}'"),
             ParsingError::UnexpectedEof => write!(f, "Unexpected end of file"),
             ParsingError::InvalidAssignment => write!(f, "Invalid assignment"),
-            ParsingError::InvalidExpression(msg) => write!(f, "Invalid expression - {}", msg),
+            ParsingError::InvalidExpression(msg) => write!(f, "Invalid expression - {msg}"),
         }
     }
 }
@@ -69,6 +70,8 @@ pub enum EvalError {
     WrongTypes(String, Vec<Value>, Vec<Value>), // operator, expected, received
     ZeroDivisor,
     NonFunctionApplication(Value),
+    PatternError(String),
+    InvalidPattern(Expression),
 }
 
 impl fmt::Display for EvalError {
@@ -76,10 +79,12 @@ impl fmt::Display for EvalError {
         match self {
             Self::VariableDoesNotExists(var) => write!(f, "Variable not defined: {var}"),
             Self::InvalidSizeOfArgsFor(op) => write!(f, "Invalid size of args for {op}"),
+            Self::InvalidPattern(expr) => write!(f, "Invalid pattern: {expr}"),
             Self::UnexpectedOperator(op) => write!(f, "Unexpected operator {op}"),
             Self::ZeroDivisor => write!(f, "Dividing by zero is not allowed"),
+            Self::PatternError(x) => write!(f, "Pattern error - {x}"),
             Self::WrongTypes(op, exp, received) => {
-                write!(f, "Wrong types:")?;
+                write!(f, "Wrong types for {op}:")?;
                 write!(f, "\nexpected: (")?;
                 for x in exp.iter() {
                     write!(f, "{x} ")?;

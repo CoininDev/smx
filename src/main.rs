@@ -3,7 +3,6 @@ use crate::repl::REPL;
 use crate::{
     ast::Parser,
     lexer::{Lexer, Token},
-    error::*,
 };
 use std::{env, fs};
 mod ast;
@@ -48,7 +47,24 @@ fn main() {
                 Err(e) => panic!("Evaluation Error: {e}"),
             };
 
-            println!("result = {result:?}");
+            println!("result = {result}");
+        }
+
+        Some(a) if a == "-p" => {
+            let content = match args.get(2) {
+                Some(x)   => x,
+                None  => panic!("Erro: Não tem nada na posição 2"),
+            };
+
+            let tk = tokenize(content.as_str());
+            let mut parser = Parser::new(tk);
+            let program = match parser.parse_program() {
+                Ok(p)   => p,
+                Err(e)  => panic!("Parser error: {e}"),
+            };
+            for assign in program.body {
+                println!("{} = {}", assign.0, assign.1);
+            }
         }
 
         None | Some(_) => usage(),
@@ -61,6 +77,7 @@ fn usage() {
 Options:
   -i             Enter interactive mode
   -f <filename>  Evaluate a file and print the result
+  -p             Parse an expression
     ";
     println!("{message}");
 }
