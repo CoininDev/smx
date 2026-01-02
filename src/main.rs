@@ -1,3 +1,5 @@
+#![feature(box_patterns)]
+
 use crate::eval::eval_program;
 use crate::repl::REPL;
 use crate::{
@@ -6,6 +8,7 @@ use crate::{
 };
 use std::{env, fs};
 mod ast;
+mod runtime;
 mod eval;
 mod value;
 mod error;

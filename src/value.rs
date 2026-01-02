@@ -1,12 +1,15 @@
 use crate::{ast::*, eval::*};
 use std::cmp::Ordering;
+use ordered_float::NotNan;
 
-
-
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Value {
-    Num(f64),
+    Num(NotNan<f64>),
     Lambda(Pattern, Expression, Environment),
+    Environment(Environment),
+    Frozen(Expression),
+    Pattern(Pattern),
+    Builtin(String),
     Bool(bool),
     Pair(Box<Value>, Box<Value>),
     Nil,
@@ -15,6 +18,7 @@ pub enum Value {
 #[derive(Debug, Clone, PartialEq, Hash, Eq)]
 pub enum Pattern {
     Name(String),
+    Value(Box<Value>),
     Pair(Box<Pattern>, Box<Pattern>),
     Wildcard,
 }
@@ -23,6 +27,7 @@ impl std::fmt::Display for Pattern {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Name(x)    => write!(f, "{x}"),
+            Self::Value(x)   => write!(f, "{}", *x),
             Self::Pair(a, b) => write!(f, "({}, {})", *a, *b),
             Self::Wildcard   => write!(f, "_"),
         }
@@ -34,8 +39,19 @@ impl std::fmt::Display for Value {
         match self {
             Self::Num(x) => write!(f, "{x}"),
             Self::Lambda(arg, body, _) => write!(f, "\\{arg}. {body}"),
+            Self::Builtin(b) => write!(f, "{b}"),
             Self::Bool(b) => write!(f, "{b}"),
+            Self::Pattern(p) => write!(f, "#{p}"),
             Self::Pair(a, b) => write!(f, "({}, {})", *a, *b),
+            Self::Frozen(e) => write!(f, "'{}", e),
+            Self::Environment(e) => {
+                write!(f, "{{")?;
+                for (k, v) in e {
+                    write!(f, " {k} =")?;
+                    write!(f, " {v}; ")?;
+                }
+                write!(f, "}}")
+            }
             Self::Nil => write!(f, "nil")
         }
     }
@@ -106,5 +122,3 @@ impl std::ops::Div for Value {
         }
     }
 }
-
-

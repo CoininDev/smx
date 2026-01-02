@@ -16,15 +16,9 @@ pub enum LexerError {
 impl fmt::Display for LexerError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            LexerError::InvalidNumber(msg) => {
-                write!(f, "Invalid number - {}", msg)
-            }
-            LexerError::UnrecognizedChar(ch) => {
-                write!(f, "Couldn't recognize character '{}'", ch)
-            }
-            LexerError::ParseError(value, msg) => {
-                write!(f, "Failed analysing '{}' - {}", value, msg)
-            }
+            Self::InvalidNumber(msg) => write!(f, "Invalid number - {}", msg),
+            Self::UnrecognizedChar(ch) => write!(f, "Couldn't recognize character '{}'", ch),
+            Self::ParseError(value, msg) => write!(f, "Failed analysing '{}' - {}", value, msg),
         }
     }
 }
@@ -42,16 +36,18 @@ pub enum ParsingError {
     UnexpectedEof,
     InvalidAssignment,
     InvalidExpression(String),
+    NotNanError(String),
 }
 
 impl fmt::Display for ParsingError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ParsingError::Unexpected(msg) => write!(f, "Unexpected - {}", msg),
-            ParsingError::Expected(e, found) => write!(f, "Expected a '{e:?}', but found '{found:?}'"),
-            ParsingError::UnexpectedEof => write!(f, "Unexpected end of file"),
-            ParsingError::InvalidAssignment => write!(f, "Invalid assignment"),
-            ParsingError::InvalidExpression(msg) => write!(f, "Invalid expression - {msg}"),
+            Self::Unexpected(msg) => write!(f, "Unexpected - {}", msg),
+            Self::Expected(e, found) => write!(f, "Expected a '{e:?}', but found '{found:?}'"),
+            Self::UnexpectedEof => write!(f, "Unexpected end of file"),
+            Self::InvalidAssignment => write!(f, "Invalid assignment"),
+            Self::InvalidExpression(msg) => write!(f, "Invalid expression - {msg}"),
+            Self::NotNanError(s) => write!(f, "Not Nan Error - {s}"),
         }
     }
 }
@@ -72,6 +68,7 @@ pub enum EvalError {
     NonFunctionApplication(Value),
     PatternError(String),
     InvalidPattern(Expression),
+    NotNanError(String),
 }
 
 impl fmt::Display for EvalError {
@@ -83,6 +80,7 @@ impl fmt::Display for EvalError {
             Self::UnexpectedOperator(op) => write!(f, "Unexpected operator {op}"),
             Self::ZeroDivisor => write!(f, "Dividing by zero is not allowed"),
             Self::PatternError(x) => write!(f, "Pattern error - {x}"),
+            Self::NotNanError(s) => write!(f, "Not Nan Error - {s}"),
             Self::WrongTypes(op, exp, received) => {
                 write!(f, "Wrong types for {op}:")?;
                 write!(f, "\nexpected: (")?;

@@ -38,12 +38,14 @@ pub enum TokenType {
     Number(f64),
     LParen,
     RParen,
+    LBrace,
+    RBrace,
     Op(String),
-    Assign,
     Ident(String),
     Keyword(Keyword),
     EndExpr,
     Backslash,
+    Apostrophe,
     Dot,
 }
 
@@ -53,19 +55,21 @@ impl fmt::Display for TokenType {
             Self::Number(n) => write!(f,"{n}"),
             Self::LParen => write!(f,"("),
             Self::RParen => write!(f,")"),
+            Self::LBrace => write!(f,"{{"),
+            Self::RBrace => write!(f,"}}"),
             Self::Op(s) => write!(f,"{s}"),
-            Self::Assign => write!(f,"="),
             Self::Ident(s) => write!(f,"{s}"),
             Self::Keyword(s) => write!(f,"{s:?}"),
             Self::EndExpr => write!(f,"$"),
             Self::Backslash => write!(f, "\\"),
+            Self::Apostrophe => write!(f, "'"),
             Self::Dot => write!(f, "."),
         }
     }
 }
 
 fn op_alphabet() -> &'static str {
-    "+-*/<>=!?&|,"
+    "+-*/<>=!?&|,#:"
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Display)]
@@ -92,7 +96,7 @@ impl FromStr for Keyword {
 }
 
 pub fn is_valid_unary(op: &str) -> bool {
-    let valid = vec!["+", "-", "!"];
+    let valid = vec!["+", "-", "!", "#"];
     valid.contains(&op)
 }
 
@@ -123,8 +127,10 @@ impl Iterator for Lexer {
         advance(self, first_ch_len);
         match chars.as_slice() {
             [' ', ..] | ['\t', ..] => self.next(),
-
-            ['=', x, ..] if *x != '=' => mount_token(TokenType::Assign),
+            ['\n', ..] => {
+                self.current_line += 1;
+                self.next()
+            }
 
             [u, ..] if op_alphabet().contains(*u) => {
                 let mut buf = String::from(*u);
@@ -140,20 +146,16 @@ impl Iterator for Lexer {
                 }
                 mount_token(TokenType::Op(buf))
             }
-
+            
             ['(', ..] => mount_token(TokenType::LParen),
-
             [')', ..] => mount_token(TokenType::RParen),
+            ['{', ..] => mount_token(TokenType::LBrace),
+            ['}', ..] => mount_token(TokenType::RBrace),
             [';', ..] => mount_token(TokenType::EndExpr),
-
-            ['\n', ..] => {
-                self.current_line += 1;
-                self.next()
-            }
-
-            ['\\', ..] => mount_token(TokenType::Backslash),
-
             ['.', ..] => mount_token(TokenType::Dot),
+
+            ['\'', ..] => mount_token(TokenType::Apostrophe),
+            ['\\', ..] => mount_token(TokenType::Backslash),
 
             [d, ..] if d.is_ascii_digit() || *d == '.' => {
                 let mut seen_dot = *d == '.';

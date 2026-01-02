@@ -1,6 +1,7 @@
 use crate::{lexer::*, error::ParsingError};
 use std::fmt::Display;
 use ordered_float::NotNan;
+use im::hashmap;
 
 #[derive(Debug, Clone)]
 pub struct Program {
@@ -8,7 +9,9 @@ pub struct Program {
 }
 
 fn mount_num(num: f64) -> ParseResult<NotNan<f64>> {
-    NotNan::new(num).map_err(|e| ParsingError::NotNanError(e.to_string())) }
+    NotNan::new(num).map_err(|e| ParsingError::NotNanError(e.to_string()))
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Expression {
     Var(String),
@@ -16,7 +19,6 @@ pub enum Expression {
     Bool(bool),
     Nil,
     Frozen(Box<Expression>),
-    Environment(Vec<(Expression, Expression)>),
     Lambda(Box<Expression>/* param */, Box<Expression>/* body */),
     Application(Box<Expression>, Box<Expression>),
     Operation(String, Vec<Expression>),
@@ -25,27 +27,19 @@ pub enum Expression {
 impl Display for Expression {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Var(s) => write!(f, "{s}"),
-            Self::Num(i) => write!(f, "{i}"),
-            Self::Lambda(arg, body) => write!(f, "\\{arg}. {body}"),
-            Self::Nil => write!(f, "nil"),
-            Self::Frozen(x) => write!(f, "'{}", *x),
-            Self::Application(a, b) => write!(f, "{a} {b}"),
-            Self::Bool(b) => write!(f, "{b}"),
-            Self::Operation(op, e) => {
+            Expression::Var(s) => write!(f, "{s}"),
+            Expression::Num(i) => write!(f, "{i}"),
+            Expression::Lambda(arg, body) => write!(f, "\\{arg}. {body}"),
+            Expression::Nil => write!(f, "nil"),
+            Expression::Frozen(x) => write!(f, "'{}", *x),
+            Expression::Application(a, b) => write!(f, "{a} {b}"),
+            Expression::Bool(b) => write!(f, "{b}"),
+            Expression::Operation(op, e) => {
                 write!(f, "({op}")?;
                 for expr in e {
                     write!(f, " {expr}")?;
                 }
                 write!(f, ")")
-            }
-            Self::Environment(e) => {
-                write!(f, "{{")?;
-                for (k, v) in e {
-                    write!(f, " {k} =")?;
-                    write!(f, " {v}; ")?;
-                }
-                write!(f, "}}")
             }
         }
     }
@@ -75,7 +69,6 @@ pub fn binding_power(op: &str) -> (f32, f32) {
         "||" | "&&" => (4., 4.1),
         "," => (3.6, 3.5),
         ":" => (3., 3.1),
-        "::" => (3., 3.1),
         "?" => (2., 2.1),
         "<APPLY>" => (10., 10.1),
         _ => (8., 8.1),
@@ -177,12 +170,7 @@ impl Parser {
                 self.next();
                 cu
             }
-            Some(TokenType::LParen) => {
-                self.next();
-                let a = self.parse_expr_pratt(0.)?;
-                self.expect(TokenType::RParen)?;
-                Ok(a)
-            },
+            Some(TokenType::LParen)   => self.parse_expr_pratt(0.),
             Some(x) => Err(ParsingError::Expected("pattern".to_string(), x.to_string())),
             None    => Err(ParsingError::UnexpectedEof)
         }
@@ -198,19 +186,10 @@ impl Parser {
     }
 
     pub fn parse_env(&mut self) -> ParseResult<Expression> {
-        let mut env = vec![];
-
+        let mut env = hashmap!{};
         while self.peek_type(0) != Some(&TokenType::RBrace) {
-            let pat = self.parse_pattern()?;
-            self.expect(TokenType::Op("=".into()))?;
-            let val = self.parse_expr_pratt(0.)?;
-            env.push((pat, val));
-            self.expect(TokenType::EndExpr)?;
+            
         }
-
-        self.expect(TokenType::RBrace)?;
-
-        Ok(Expression::Environment(env))
     }
         
     pub fn parse_term(&mut self) -> ParseResult<Expression> {
@@ -219,16 +198,10 @@ impl Parser {
                 token_type: TokenType::Number(n),
                 ..
             }) => Ok(Expression::Num(mount_num(n)?)),
-
             Some(Token {
                 token_type: TokenType::Ident(i),
                 ..
             }) => Ok(Expression::Var(i)),
-
-            Some(Token {
-                token_type: TokenType::LBrace,
-                ..
-            }) => self.parse_env(),
 
             Some(Token {
                 token_type: TokenType::Apostrophe,
@@ -287,6 +260,7 @@ impl Parser {
                 None 
                 | Some(TokenType::EndExpr) 
                 | Some(TokenType::RParen) 
+                | Some(TokenType::Assign)
                 | Some(TokenType::Dot)
                 => break,
 
