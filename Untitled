@@ -1,0 +1,1 @@
+op left  2 (a ?> ((pat, expr), rest)) = zip_env(pat, a) == nil ? (a ?> rest), (zip_env(pat, a) :: expr);

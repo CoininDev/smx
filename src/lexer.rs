@@ -69,7 +69,7 @@ impl fmt::Display for TokenType {
 }
 
 fn op_alphabet() -> &'static str {
-    "+-*/<>=!?&|,#:"
+    "+-*/<>=!?&|,#:!@$%¨`~^·•»«ø→↓←´ªº°§¹²³£¢¬"
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Display)]
@@ -93,11 +93,6 @@ impl FromStr for Keyword {
             _ => Err(()),
         }
    }
-}
-
-pub fn is_valid_unary(op: &str) -> bool {
-    let valid = vec!["+", "-", "!", "#"];
-    valid.contains(&op)
 }
 
 pub type LexResult<T> = Result<T, LexerError>;

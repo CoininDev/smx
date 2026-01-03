@@ -1,4 +1,3 @@
-
 use crate::{ast::*, value::*, error::EvalError, runtime::*};
 use im::HashMap;
 use im::hashmap;
@@ -29,6 +28,7 @@ pub fn eval_program(tree: Program) -> EvalResult<Value> {
 pub fn eval_assign(a: Assign, vars: &mut Environment) -> EvalResult<()> {
     let pat = eval_pattern(a.0)?;
     let value = eval_expr(a.1, vars)?;
+    println!("eval_assign adding: {pat} = {value}");
     vars.extend(eval_pattern_pair(pat, value)?.into_iter());
     Ok(())
 }
@@ -53,6 +53,13 @@ pub fn eval_expr(e: Expression, vars: &Environment) -> EvalResult<Value> {
                 None    => Err(EvalError::VariableDoesNotExists(format!("{v}"))),
             }
         }
+        Expression::OpSigVar(OpSig::Prefix(v))|
+        Expression::OpSigVar(OpSig::Infix(v))=> {
+            match vars.get(&format!("<operator>{v}")) {
+                Some(i) => Ok(i.clone()),
+                None    => Err(EvalError::VariableDoesNotExists(format!("{v}"))),
+            }
+        },
         Expression::Num(i)    => Ok(Value::Num(i)),
         Expression::Nil       => Ok(Value::Nil),
         Expression::Frozen(m) => Ok(Value::Frozen(*m)),
@@ -84,6 +91,10 @@ pub fn eval_pattern(input: Expression) -> EvalResult<Pattern> {
         },
         Expression::Var(x) if x == "_" => Ok(Pattern::Wildcard),
         Expression::Var(x) => Ok(Pattern::Name(x)),
+
+        //used by custom operators only
+        Expression::OpSigVar(OpSig::Prefix(x)) |
+        Expression::OpSigVar(OpSig::Infix(x))  => Ok(Pattern::Name(format!("<custom_operator>{x}"))),
         other => Ok(Pattern::Value(Box::new(eval_expr(other, &hashmap!{})?))),
     }
 }
@@ -152,8 +163,9 @@ pub fn apply(func: Value, arg: Value, vars: &Environment) -> EvalResult<Value> {
         Value::Builtin(x) => return apply_builtin(&x, arg, vars),
         _ => return Err(EvalError::NonFunctionApplication(func)),
     };
-    let mut vars2 = cap_env.clone();
-    vars2.extend(eval_pattern_pair(param, arg)?.into_iter());
+    let new_env = eval_pattern_pair(param, arg)?;
+    let vars2 = cap_env.clone().union(new_env);
+    println!("apply env: {vars2:#?}");
     eval_expr(body, &vars2)
 }
 
@@ -273,6 +285,26 @@ pub fn eval_operation(op: String, exprs: Vec<Expression>, vars: &Environment) ->
                             vec![eval(left)?, eval(right)?])),
             }
             _ => Err(EvalError::InvalidSizeOfArgsFor("&&".to_string())),
+        }
+        otherwise if vars.contains_key(&format!("<custom_operator>{otherwise}")) => {
+            let op_key = format!("<custom_operator>{otherwise}");
+            let op_def = match vars.get(&op_key) {
+                Some(v) => v.clone(), 
+                None => return Err(EvalError::UnexpectedOperator(otherwise.to_string())),
+            };
+            match exprs.as_slice() {
+                [expr] => apply(
+                    op_def.clone(),
+                    eval(expr)?, 
+                    vars,
+                ),
+                [left, right] => apply(
+                    op_def.clone(),
+                    Value::Pair(Box::new(eval(left)?), Box::new(eval(right)?)),
+                    vars,
+                ),
+                _ => Err(EvalError::InvalidSizeOfArgsFor(otherwise.to_string())),
+            }
         }
         _ => Err(EvalError::UnexpectedOperator(format!("{op}"))),
     }

@@ -1,0 +1,3 @@
+op nonassoc 3 (a +*+ b) = (a + b) * (a + b);
+result = 1 +*+ 2;
+

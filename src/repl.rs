@@ -16,7 +16,7 @@ pub struct REPL {
 impl REPL {
     pub fn new() -> Self {
         Self {
-            vars: HashMap::new(),
+            vars: Environment::default(),
             rl: DefaultEditor::new().unwrap(),
         }
     }
@@ -29,6 +29,13 @@ impl REPL {
                 if line == "exit" {
                     println!("Bye bye!");
                     return true;
+                }
+                
+                if line == "everything" {
+                    for (k,v) in &self.vars {
+                        println!("{k} = {v}");
+                    }
+                    return false;
                 }
 
                 let tk = self.tokenize(line.as_str());
@@ -62,7 +69,8 @@ impl REPL {
                         return false;
                     }
 
-                    (Err(_), Ok(expr)) => {
+                    (Err(_a), Ok(expr)) => {
+                        // println!("Assign Err: {}", _a);
                         #[cfg(debug_assertions)]
                         println!("(debug)\tAST: {expr:#?}");
                         let res = match eval_expr(expr, &self.vars){
@@ -77,6 +85,7 @@ impl REPL {
                     }
 
                     (Err(a), Err(b)) => {
+                        // println!("Assign Err: {}", a);
                         if assign_pos >= expr_pos {
                             println!("Assign Err: {}", a);
                         } else {

@@ -47,16 +47,16 @@ fn main() {
 
             let result = match eval_program(program) {
                 Ok(r) => r,
-                Err(e) => panic!("Evaluation Error: {e}"),
+                Err(e) => panic!("Evaluation Error: {e:#?}"),
             };
 
             println!("result = {result}");
         }
 
         Some(a) if a == "-p" => {
-            let content = match args.get(2) {
+            let content = match args.get(1) {
                 Some(x)   => x,
-                None  => panic!("Erro: Não tem nada na posição 2"),
+                None  => panic!("Erro: Não tem nada na posição 1"),
             };
 
             let tk = tokenize(content.as_str());
@@ -67,6 +67,28 @@ fn main() {
             };
             for assign in program.body {
                 println!("{} = {}", assign.0, assign.1);
+            }
+        }
+
+        Some(a) if a == "-pf" || a == "-fp" => {
+            let path = match args.get(1) {
+                Some(x)   => x,
+                None  => panic!("Erro: Não tem nada na posição 1"),
+            };
+            
+            let content = fs::read_to_string(path)
+                .expect(format!("Error reading file {path}")
+                .as_str());
+
+            let tk = tokenize(content.as_str());
+            let mut parser = Parser::new(tk);
+            let program = match parser.parse_program() {
+                Ok(p) => p,
+                Err(e) => panic!("Parser error: {e}"),
+            };
+
+            for assign in program.body {
+                println!("{} = {:#?}", assign.0, assign.1);
             }
         }
 

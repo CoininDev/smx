@@ -1,6 +1,0 @@
-pi     = 3.14156
-r      = 69
-
-area = pi * (r * r)
-result = area
-
