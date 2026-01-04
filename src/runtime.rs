@@ -36,3 +36,7 @@ pub fn builtin_zip_env(pat: Pattern, arg: Value) -> Value {
 pub fn builtin_use(env: Environment, frozen: Expression, vars: &Environment) -> Value {
     eval_expr(frozen, &env.union(vars.clone())).unwrap_or(Value::Nil)
 }
+
+pub fn builtin_eval(frozen: Expression, vars: &Environment) -> Value {
+    eval_expr(frozen, vars).unwrap_or(Value::Nil)
+}

@@ -37,7 +37,8 @@ fn is_builtin(name: &str) -> bool {
     vec![
         "try",
         "zip_env",
-        "use"
+        "use",
+        "eval"
     ].contains(&name)
 }
 
@@ -153,11 +154,18 @@ pub fn apply_builtin(x: &str, arg: Value, vars: &Environment) -> EvalResult<Valu
             )),
         }
 
+        "eval" => match arg {
+            Value::Frozen(x) => Ok(builtin_eval(x, vars)),
+            other => Err(EvalError::WrongTypes("eval".to_string(),
+                vec![Value::Frozen(Expression::Nil)], vec![other])),
+        }
+
         _ => Err(EvalError::VariableDoesNotExists(format!("{x}")))
     }
 }
 
 pub fn apply(func: Value, arg: Value, vars: &Environment) -> EvalResult<Value> {
+    let func_clone = func.clone();
     let (param, body, cap_env) = match func {
         Value::Lambda(param, body, cap_env) => (param, body, cap_env),
         Value::Builtin(x) => return apply_builtin(&x, arg, vars),
@@ -165,6 +173,7 @@ pub fn apply(func: Value, arg: Value, vars: &Environment) -> EvalResult<Value> {
     };
     let new_env = eval_pattern_pair(param, arg)?;
     let vars2 = cap_env.clone().union(new_env);
+    let vars2 = vars2.union(hashmap!{"__self".into() => func_clone});
     println!("apply env: {vars2:#?}");
     eval_expr(body, &vars2)
 }
@@ -277,7 +286,7 @@ pub fn eval_operation(op: String, exprs: Vec<Expression>, vars: &Environment) ->
         "::" => match exprs.as_slice() {
             [left, right] => match (eval(left)?, eval(right)?) {
                 (Value::Environment(a), Value::Frozen(e)) => eval_expr(e, &a.union(vars.clone())),
-                _ => Err(EvalError::WrongTypes("&&".to_string(), 
+                _ => Err(EvalError::WrongTypes("::".to_string(), 
                             vec![
                                 Value::Environment(hashmap!{}), 
                                 Value::Frozen(Expression::Nil),
