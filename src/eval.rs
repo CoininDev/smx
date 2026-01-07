@@ -1,19 +1,31 @@
-use crate::{ast::*, value::*, error::EvalError, runtime::*};
+use crate::{ast::*, value::*, error::{*, EvalErrorType::*}, runtime::*};
 use im::HashMap;
 use im::hashmap;
+use im::vector;
 use ordered_float::NotNan;
+
+macro_rules! eval_error {
+    ($err: expr) => {
+        EvalError::new($err)
+    }
+}
 
 pub type EvalResult<T> = Result<T, EvalError>;
 pub type Environment = HashMap<String, Value>;
 
 fn mount_num(num: f64) -> EvalResult<NotNan<f64>> {
-    NotNan::new(num).map_err(|e| EvalError::NotNanError(e.to_string()))
+    NotNan::new(num).map_err(|e| eval_error!(NotNanError(e.to_string())))
 }
 
 pub fn eval_program(tree: Program) -> EvalResult<Value> {
+    let mut resources = HashMap::new();
+    for res in &tree.body {
+        eval_resource(res, &mut resources)?;
+    }
+
     let mut vars = HashMap::new();
     for assign in tree.body {
-        eval_assign(assign, &mut vars)?;
+        eval_assign(assign, &mut vars, &resources)?;
     }
 
     match vars.get("result".into()) {
@@ -25,16 +37,48 @@ pub fn eval_program(tree: Program) -> EvalResult<Value> {
     }
 }
 
-pub fn eval_assign(a: Assign, vars: &mut Environment) -> EvalResult<()> {
+pub fn eval_resource(res: &Assign, resources: &mut Environment) -> EvalResult<()> {
+    let name = match &res.0 {
+        Expression::Var(m) if m[0] == "__RESOURCE__" => m[1].clone(),
+        _ => return Ok(()),
+    };
+
+    let value = eval_expr(res.2.clone(), &Environment::default(), resources)?;
+    resources.insert(name, value);
+    Ok(())
+}
+
+pub fn eval_assign(a: Assign, vars: &mut Environment, rsrcs: &Environment) -> EvalResult<()> {
+    if let Expression::Var(m) = &a.0 {
+        if m[0] == "__RESOURCE__" {
+            return Ok(());
+        }
+    }
+
     let pat = eval_pattern(a.0)?;
-    let value = eval_expr(a.1, vars)?;
+    
+    let mut vars2 = vars.clone();
+    for res in a.1 {
+        match rsrcs.get(&res) {
+            _ if is_builtin_res(res.as_str()) => vars2.insert(res.clone(), Value::Builtin(res.into())),
+            Some(m) => vars2.insert(res, m.clone()),
+            _ => return Err(eval_error!(VariableDoesNotExists(res))),
+        };
+    }
+
+    let value = eval_expr(a.2, &vars2, &rsrcs).map_err(|e| EvalError{
+        errtype: e.errtype, 
+        assign: Some(pat.to_string())
+    })?;
+    
+    #[cfg(debug_assertions)]
     println!("eval_assign adding: {pat} = {value}");
     vars.extend(eval_pattern_pair(pat, value)?.into_iter());
     Ok(())
 }
 
 fn is_builtin(name: &str) -> bool {
-    vec![
+    vector![
         "try",
         "zip_env",
         "use",
@@ -42,41 +86,66 @@ fn is_builtin(name: &str) -> bool {
     ].contains(&name)
 }
 
-pub fn eval_expr(e: Expression, vars: &Environment) -> EvalResult<Value> {
+fn is_builtin_res(name: &str) -> bool {
+    vector![
+        "IO"
+    ].contains(&name)
+}
+
+pub fn eval_expr(e: Expression, vars: &Environment, rsrcs: &Environment) -> EvalResult<Value> {
     match e {
         Expression::Var(v) => {
-            if is_builtin(&v) {
-                return Ok(Value::Builtin(v))
-            }
+            match v.as_slice() {
+                [one] => {
+                    if is_builtin(&one) {
+                        return Ok(Value::Builtin(one.into()))
+                    }
 
-            match vars.get(&v) {
-                Some(i) => Ok(i.clone()),
-                None    => Err(EvalError::VariableDoesNotExists(format!("{v}"))),
+                    match vars.get(one) {
+                        Some(i) => Ok(i.clone()),
+                        None    => Err(eval_error!(VariableDoesNotExists(format!("{one}")))),
+                    }
+                },
+                _ => {
+                    if is_builtin_res(&v[0]) {
+                        return Ok(Value::Builtin(v.join(".")));
+                    }
+
+                    let a = match vars.get(&v[0]) {
+                        Some(Value::Environment(env)) => Ok(env.clone()),
+                        Some(_) => Err(eval_error!(
+                                VariableDoesNotExists(format!("{} of type env", v[0])))
+                        ),
+                        None=> Err(eval_error!(VariableDoesNotExists(format!("{}", v[0])))),
+                    }?;
+
+                    eval_expr(Expression::Var(v[1..].to_vec()), &a, rsrcs)
+                }
             }
+            
         }
         Expression::OpSigVar(OpSig::Prefix(v))|
         Expression::OpSigVar(OpSig::Infix(v))=> {
             match vars.get(&format!("<operator>{v}")) {
                 Some(i) => Ok(i.clone()),
-                None    => Err(EvalError::VariableDoesNotExists(format!("{v}"))),
+                None    => Err(eval_error!(VariableDoesNotExists(format!("{v}")))),
             }
         },
         Expression::Num(i)    => Ok(Value::Num(i)),
+        Expression::Str(s)    => Ok(Value::Str(s)),
         Expression::Nil       => Ok(Value::Nil),
         Expression::Frozen(m) => Ok(Value::Frozen(*m)),
         Expression::Environment(e) => {
             let mut env: HashMap<String, Value> = hashmap!{};
-            for (k, v) in e {
-                let k = eval_pattern(k)?;
-                let v = eval_expr(v, vars)?;
-                env.extend(eval_pattern_pair(k, v)?);
+            for ass in e {
+                eval_assign(ass, &mut env, rsrcs)?;
             }
             Ok(Value::Environment(env))
         } 
         Expression::Bool(b)   => Ok(Value::Bool(b)),
-        Expression::Operation(op, exprs) => eval_operation(op, exprs, vars),
+        Expression::Operation(op, exprs) => eval_operation(op, exprs, vars, rsrcs),
         Expression::Lambda(param, body) => Ok(Value::Lambda(eval_pattern(*param)?, *body, vars.clone())),
-        Expression::Application(f, x) => apply(eval_expr(*f, vars)?, eval_expr(*x, vars)?, vars),
+        Expression::Application(f, x) => apply(eval_expr(*f, vars, rsrcs)?, eval_expr(*x, vars, rsrcs)?, vars, rsrcs),
     }
 }
 
@@ -88,15 +157,15 @@ pub fn eval_pattern(input: Expression) -> EvalResult<Pattern> {
     match input {
         Expression::Operation(op, exprs) if op == "," => match exprs.as_slice() {
                 [left, right] => Ok(Pattern::Pair(Box::new(eval(left)?), Box::new(eval(right)?))),
-                _ => Err(EvalError::InvalidSizeOfArgsFor(",".to_string())),
+                _ => Err(eval_error!(InvalidSizeOfArgsFor(",".to_string()))),
         },
-        Expression::Var(x) if x == "_" => Ok(Pattern::Wildcard),
-        Expression::Var(x) => Ok(Pattern::Name(x)),
+        Expression::Var(v) if matches!(v.as_slice(), [x] if x == "_") => Ok(Pattern::Wildcard),
+        Expression::Var(v) if v.len() == 1 => Ok(Pattern::Name(v[0].clone())),
 
         //used by custom operators only
         Expression::OpSigVar(OpSig::Prefix(x)) |
         Expression::OpSigVar(OpSig::Infix(x))  => Ok(Pattern::Name(format!("<custom_operator>{x}"))),
-        other => Ok(Pattern::Value(Box::new(eval_expr(other, &hashmap!{})?))),
+        other => Ok(Pattern::Value(Box::new(eval_expr(other, &hashmap!{}, &hashmap!{})?))),
     }
 }
 
@@ -112,14 +181,16 @@ pub fn eval_pattern_pair(pat: Pattern, val: Value) -> Result<Environment, EvalEr
             (a, b) => Err(format!("Mismatching: {}, {}", a.to_string(), b.to_string())),
         }
     }
-    rec(pat, val, HashMap::new()).map_err(|x| EvalError::PatternError(x))
+    rec(pat, val, HashMap::new()).map_err(|x| eval_error!(PatternError(x)))
 }
 
-pub fn apply_builtin(x: &str, arg: Value, vars: &Environment) -> EvalResult<Value> {
+pub fn apply_builtin(x: &str, arg: Value, vars: &Environment, rsrcs: &Environment) -> EvalResult<Value> {
+    let io_resource_imported = matches!(vars.get("IO"), Some(Value::Builtin(x)) if x == "IO");
+
     match x {
         "try" => match arg {
-            Value::Pair(a, b) => Ok(builtin_try(*a, *b, vars)),
-            other => Err(EvalError::WrongTypes("try".to_string(), 
+            Value::Pair(a, b) => Ok(builtin_try(*a, *b, vars, rsrcs)),
+            other => Err(eval_error!(WrongTypes("try".to_string(), 
                 vec![Value::Pair(
                     Box::new(Value::Lambda(
                         Pattern::Wildcard, 
@@ -129,90 +200,105 @@ pub fn apply_builtin(x: &str, arg: Value, vars: &Environment) -> EvalResult<Valu
                     Box::new(Value::Nil)
                 )], 
                 vec![other]
-            )),
+            ))),
         }
 
         "zip_env" => match arg {
             Value::Pair(box Value::Pattern(a), b) => Ok(builtin_zip_env(a, *b)),
-            other => Err(EvalError::WrongTypes("zip_env".to_string(), 
+            other => Err(eval_error!(WrongTypes("zip_env".to_string(), 
                 vec![Value::Pair(
                         Box::new(Value::Pattern(Pattern::Wildcard)),
                         Box::new(Value::Nil)
                 )], 
                 vec![other]
-            )),
+            ))),
         }
 
         "use" => match arg {
-            Value::Pair(box Value::Environment(a), box Value::Frozen(b)) => Ok(builtin_use(a, b, vars)),
-            other => Err(EvalError::WrongTypes("use".to_string(), 
+            Value::Pair(box Value::Environment(a), box Value::Frozen(b)) => Ok(builtin_use(a, b, vars, rsrcs)),
+            other => Err(eval_error!(WrongTypes("use".to_string(), 
                 vec![Value::Pair(
                         Box::new(Value::Environment(hashmap!{})),
                         Box::new(Value::Frozen(Expression::Nil))
                 )], 
                 vec![other]
-            )),
+            ))),
         }
 
         "eval" => match arg {
-            Value::Frozen(x) => Ok(builtin_eval(x, vars)),
-            other => Err(EvalError::WrongTypes("eval".to_string(),
-                vec![Value::Frozen(Expression::Nil)], vec![other])),
+            Value::Frozen(x) => Ok(builtin_eval(x, vars, rsrcs)),
+            other => Err(eval_error!(WrongTypes("eval".to_string(),
+                vec![Value::Frozen(Expression::Nil)], vec![other]))),
         }
 
-        _ => Err(EvalError::VariableDoesNotExists(format!("{x}")))
+        "IO.println" if io_resource_imported => match arg {
+            Value::Str(x) => Ok(IoResource::println(x)),
+            other => Err(eval_error!(WrongTypes(
+                        "IO.println".to_string(), 
+                        vec![Value::Str("".into())], 
+                        vec![other]
+                     ))),
+        }
+
+        _ => Err(eval_error!(VariableDoesNotExists(format!("{x}"))))
     }
 }
 
-pub fn apply(func: Value, arg: Value, vars: &Environment) -> EvalResult<Value> {
+pub fn apply(func: Value, arg: Value, vars: &Environment, rsrcs: &Environment) -> EvalResult<Value> {
     let func_clone = func.clone();
     let (param, body, cap_env) = match func {
         Value::Lambda(param, body, cap_env) => (param, body, cap_env),
-        Value::Builtin(x) => return apply_builtin(&x, arg, vars),
-        _ => return Err(EvalError::NonFunctionApplication(func)),
+        Value::Builtin(x) => return apply_builtin(&x, arg, vars, rsrcs),
+        _ => return Err(eval_error!(NonFunctionApplication(func))),
     };
     let new_env = eval_pattern_pair(param, arg)?;
     let vars2 = cap_env.clone().union(new_env);
     let vars2 = vars2.union(hashmap!{"__self".into() => func_clone});
+    #[cfg(debug_assertions)]
     println!("apply env: {vars2:#?}");
-    eval_expr(body, &vars2)
+    eval_expr(body, &vars2, rsrcs)
 }
 
-pub fn eval_operation(op: String, exprs: Vec<Expression>, vars: &Environment) -> EvalResult<Value> {  
+pub fn eval_operation(op: String, exprs: Vec<Expression>, vars: &Environment, rsrcs: &Environment) 
+    -> EvalResult<Value> {  
     let eval = |x: &Expression| -> EvalResult<Value> {
-        eval_expr(x.clone(), vars)
+        eval_expr(x.clone(), vars, rsrcs)
     };
 
     match op.as_str() {
         "#" => match exprs.as_slice() {
             [expr] => Ok(builtin_pattern_from_value(eval(expr)?)),
-            _ => Err(EvalError::InvalidSizeOfArgsFor("#".to_string())),
+            _ => Err(eval_error!(InvalidSizeOfArgsFor("#".to_string()))),
+        },
+        "!" => match exprs.as_slice() {
+            [expr] => Ok(!eval(expr)?),
+            _ => Err(eval_error!(InvalidSizeOfArgsFor("!".to_string()))),
         },
         "+" => match exprs.as_slice() {
             [expr] => eval(expr),
             [left, right] => Ok(eval(left)? + eval(right)?),
-            _ => Err(EvalError::InvalidSizeOfArgsFor("+".to_string())),
+            _ => Err(eval_error!(InvalidSizeOfArgsFor("+".to_string()))),
         },
         "-" => match exprs.as_slice() {
             [expr] => Ok(-(eval(expr)?)),
             [left, right] => Ok(eval(left)? - eval(right)?),
-            _ => Err(EvalError::InvalidSizeOfArgsFor("-".to_string())),
+            _ => Err(eval_error!(InvalidSizeOfArgsFor("-".to_string()))),
         },
         "*" => match exprs.as_slice() {
             [left, right] => Ok(eval(left)? * eval(right)?),
-            _ => Err(EvalError::InvalidSizeOfArgsFor("*".to_string())),
+            _ => Err(eval_error!(InvalidSizeOfArgsFor("*".to_string()))),
         },
         "/" => match exprs.as_slice() {
             [left, right] => match eval(right)? {
-                Value::Nil => Err(EvalError::ZeroDivisor),
-                Value::Num(x) if x == 0. => Err(EvalError::ZeroDivisor),
+                Value::Nil => Err(eval_error!(ZeroDivisor)),
+                Value::Num(x) if x == 0. => Err(eval_error!(ZeroDivisor)),
                 otherwise => Ok(eval(left)? / otherwise),
             },
-            _ => Err(EvalError::InvalidSizeOfArgsFor("/".to_string())),
+            _ => Err(eval_error!(InvalidSizeOfArgsFor("/".to_string()))),
         },
         "," => match exprs.as_slice() {
             [left, right] => Ok(Value::Pair(Box::new(eval(left)?), Box::new(eval(right)?))),
-            _ => Err(EvalError::InvalidSizeOfArgsFor(",".to_string())),
+            _ => Err(eval_error!(InvalidSizeOfArgsFor(",".to_string()))),
         },
         "?" => match exprs.as_slice() {
             [left, right] => {
@@ -220,101 +306,104 @@ pub fn eval_operation(op: String, exprs: Vec<Expression>, vars: &Environment) ->
                     (Value::Bool(cond), Value::Pair(l, r)) => {
                         if cond { Ok(*l) } else { Ok(*r) }
                     }
-                    (a, b) => Err(EvalError::WrongTypes("?".to_string(), 
+                    (a, b) => Err(eval_error!(WrongTypes("?".to_string(), 
                             vec![Value::Bool(false), Value::Pair(
                                 Box::new(Value::Nil), 
                                 Box::new(Value::Nil))],
-                            vec![a, b]))
+                            vec![a, b])))
                 }
             }
-            _ => Err(EvalError::InvalidSizeOfArgsFor("?".to_string())),
+            _ => Err(eval_error!(InvalidSizeOfArgsFor("?".to_string()))),
         }
         "<" => match exprs.as_slice() {
             [left, right] => Ok(Value::Bool(eval(left)? < eval(right)?)),
-            _ => Err(EvalError::InvalidSizeOfArgsFor("<".to_string())),
+            _ => Err(eval_error!(InvalidSizeOfArgsFor("<".to_string()))),
         },
         ">" => match exprs.as_slice() {
             [left, right] => Ok(Value::Bool(eval(left)? > eval(right)?)),
-            _ => Err(EvalError::InvalidSizeOfArgsFor(">".to_string())),
+            _ => Err(eval_error!(InvalidSizeOfArgsFor(">".to_string()))),
         },
         "<=" => match exprs.as_slice() {
             [left, right] => Ok(Value::Bool(eval(left)? <= eval(right)?)),
-            _ => Err(EvalError::InvalidSizeOfArgsFor("<=".to_string())),
+            _ => Err(eval_error!(InvalidSizeOfArgsFor("<=".to_string()))),
         },
         ">=" => match exprs.as_slice() {
             [left, right] => Ok(Value::Bool(eval(left)? >= eval(right)?)),
-            _ => Err(EvalError::InvalidSizeOfArgsFor(">=".to_string())),
+            _ => Err(eval_error!(InvalidSizeOfArgsFor(">=".to_string()))),
         },
         "==" => match exprs.as_slice() {
             [left, right] => Ok(Value::Bool(eval(left)? == eval(right)?)),
-            _ => Err(EvalError::InvalidSizeOfArgsFor("==".to_string())),
+            _ => Err(eval_error!(InvalidSizeOfArgsFor("==".to_string()))),
         },
         "!=" => match exprs.as_slice() {
             [left, right] => Ok(Value::Bool(eval(left)? != eval(right)?)),
-            _ => Err(EvalError::InvalidSizeOfArgsFor("!=".to_string())),
+            _ => Err(eval_error!(InvalidSizeOfArgsFor("!=".to_string()))),
         },
         "||" => match exprs.as_slice() {
             [left, right] => match (eval(left)?, eval(right)?) {
                 (Value::Bool(a), Value::Bool(b)) => Ok(Value::Bool(a || b)),
-                _ => Err(EvalError::WrongTypes("||".to_string(), 
+                _ => Err(eval_error!(WrongTypes("||".to_string(), 
                             vec![Value::Bool(true), Value::Bool(true)],
-                            vec![eval(left)?, eval(right)?])),
+                            vec![eval(left)?, eval(right)?]))),
             }
-            _ => Err(EvalError::InvalidSizeOfArgsFor("||".to_string())),
+            _ => Err(eval_error!(InvalidSizeOfArgsFor("||".to_string()))),
         }
         "&&" => match exprs.as_slice() {
             [left, right] => match (eval(left)?, eval(right)?) {
                 (Value::Bool(a), Value::Bool(b)) => Ok(Value::Bool(a && b)),
-                _ => Err(EvalError::WrongTypes("&&".to_string(), 
+                _ => Err(eval_error!(WrongTypes("&&".to_string(), 
                             vec![Value::Bool(true), Value::Bool(true)],
-                            vec![eval(left)?, eval(right)?])),
+                            vec![eval(left)?, eval(right)?]))),
             }
-            _ => Err(EvalError::InvalidSizeOfArgsFor("&&".to_string())),
+            _ => Err(eval_error!(InvalidSizeOfArgsFor("&&".to_string()))),
         }
         ":" => match exprs.as_slice() {
             [left, right] => match (eval(left)?, eval(right)?) {
-                (a, Value::Lambda(_, _, _)) => apply(eval(right)?, a, vars),
-                _ => Err(EvalError::WrongTypes(":".to_string(), 
+                (a, Value::Lambda(_, _, _)) => apply(eval(right)?, a, vars, rsrcs),
+                (a, Value::Builtin(_)) => apply(eval(right)?, a, vars, rsrcs),
+                _ => Err(eval_error!(WrongTypes(":".to_string(), 
                             vec![
                                 Value::Nil, 
                                 Value::Lambda(Pattern::Wildcard, Expression::Nil, hashmap!{})
                             ],
-                            vec![eval(left)?, eval(right)?])),
+                            vec![eval(left)?, eval(right)?]))),
             }
-            _ => Err(EvalError::InvalidSizeOfArgsFor(":".to_string())),
+            _ => Err(eval_error!(InvalidSizeOfArgsFor(":".to_string()))),
         }
         "::" => match exprs.as_slice() {
             [left, right] => match (eval(left)?, eval(right)?) {
-                (Value::Environment(a), Value::Frozen(e)) => eval_expr(e, &a.union(vars.clone())),
-                _ => Err(EvalError::WrongTypes("::".to_string(), 
+                (Value::Environment(a), Value::Frozen(e)) => eval_expr(e, &a.union(vars.clone()), rsrcs),
+                _ => Err(eval_error!(WrongTypes("::".to_string(), 
                             vec![
                                 Value::Environment(hashmap!{}), 
                                 Value::Frozen(Expression::Nil),
                             ],
-                            vec![eval(left)?, eval(right)?])),
+                            vec![eval(left)?, eval(right)?]))),
             }
-            _ => Err(EvalError::InvalidSizeOfArgsFor("&&".to_string())),
+            _ => Err(eval_error!(InvalidSizeOfArgsFor("&&".to_string()))),
         }
         otherwise if vars.contains_key(&format!("<custom_operator>{otherwise}")) => {
             let op_key = format!("<custom_operator>{otherwise}");
             let op_def = match vars.get(&op_key) {
                 Some(v) => v.clone(), 
-                None => return Err(EvalError::UnexpectedOperator(otherwise.to_string())),
+                None => return Err(eval_error!(UnexpectedOperator(otherwise.to_string()))),
             };
             match exprs.as_slice() {
                 [expr] => apply(
                     op_def.clone(),
                     eval(expr)?, 
                     vars,
+                    rsrcs
                 ),
                 [left, right] => apply(
                     op_def.clone(),
                     Value::Pair(Box::new(eval(left)?), Box::new(eval(right)?)),
                     vars,
+                    rsrcs
                 ),
-                _ => Err(EvalError::InvalidSizeOfArgsFor(otherwise.to_string())),
+                _ => Err(eval_error!(InvalidSizeOfArgsFor(otherwise.to_string()))),
             }
         }
-        _ => Err(EvalError::UnexpectedOperator(format!("{op}"))),
+        _ => Err(eval_error!(UnexpectedOperator(format!("{op}")))),
     }
 }

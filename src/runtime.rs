@@ -1,8 +1,8 @@
-use crate::{value::*, eval::*, ast::*};
+use crate::{value::*, lexer::*, eval::*, ast::*};
 
 // BUILTIN FUNCTIONS
-pub fn builtin_try(func: Value, arg: Value, vars: &Environment) -> Value {
-    match apply(func, arg, vars) {
+pub fn builtin_try(func: Value, arg: Value, vars: &Environment, rsrcs: &Environment) -> Value {
+    match apply(func, arg, vars, rsrcs) {
         Ok(x) => x,
         _     => Value::Nil,
     }
@@ -16,9 +16,10 @@ pub fn builtin_pattern_from_value(v: Value) -> Value {
                     Box::new(rec(*a)), 
                     Box::new(rec(*b))
             ),
-            Value::Frozen(Expression::Var(x)) => match x {
-                w if w == "_" => Pattern::Wildcard,
-                any => Pattern::Name(any),
+            Value::Frozen(Expression::Var(x)) => match x.as_slice() {
+                [w] if w == "_" => Pattern::Wildcard,
+                [any] => Pattern::Name(any.into()),
+                _ => Pattern::Wildcard,
             },
             other => Pattern::Value(Box::new(other)),
          }
@@ -33,10 +34,29 @@ pub fn builtin_zip_env(pat: Pattern, arg: Value) -> Value {
     }
 }
 
-pub fn builtin_use(env: Environment, frozen: Expression, vars: &Environment) -> Value {
-    eval_expr(frozen, &env.union(vars.clone())).unwrap_or(Value::Nil)
+pub fn builtin_use(env: Environment, frozen: Expression, vars: &Environment, rsrcs: &Environment) -> Value {
+    eval_expr(frozen, &env.union(vars.clone()), rsrcs).unwrap_or(Value::Nil)
 }
 
-pub fn builtin_eval(frozen: Expression, vars: &Environment) -> Value {
-    eval_expr(frozen, vars).unwrap_or(Value::Nil)
+pub fn builtin_eval(frozen: Expression, vars: &Environment, rsrcs: &Environment) -> Value {
+    eval_expr(frozen, vars, rsrcs).unwrap_or(Value::Nil)
+}
+
+pub struct IoResource;
+impl IoResource {
+    pub fn println(message: String) -> Value {
+        println!("{message}");
+        Value::Nil
+    }
+}
+
+pub fn util_eval_expr_str(input: &str, vars: &Environment, rsrcs: &Environment) -> Result<Value, String> {
+    let tks = Lexer::new(input)
+        .map(|res| res.map_err(|e| e.to_string()))
+        .collect::<Result<Vec<Token>, String>>()?;
+    let expr = Parser::new(tks)
+        .parse_expr_pratt(0.)
+        .map_err(|e| e.to_string())?;
+
+    eval_expr(expr, vars, rsrcs).map_err(|e| e.to_string())
 }

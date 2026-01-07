@@ -14,13 +14,14 @@ fn mount_num(num: f64) -> ParseResult<NotNan<f64>> {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Expression {
-    Var(String),
+    Var(Vec<String>),
     OpSigVar(OpSig),
     Num(NotNan<f64>),
+    Str(String),
     Bool(bool),
     Nil,
     Frozen(Box<Expression>),
-    Environment(Vec<(Expression, Expression)>),
+    Environment(Vec<Assign>),
     Lambda(Box<Expression>/* param */, Box<Expression>/* body */),
     Application(Box<Expression>, Box<Expression>),
     Operation(String, Vec<Expression>),
@@ -29,10 +30,17 @@ pub enum Expression {
 impl Display for Expression {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Var(s) => write!(f, "{s}"),
+            Self::Var(v) => {
+                write!(f, "{}", v[0])?;
+                for s in &v[1..] {
+                    write!(f, ".{s}")?;
+                }
+                write!(f, "")
+            },
             Self::OpSigVar(OpSig::Infix(x)) => write!(f, "{x}"),
             Self::OpSigVar(OpSig::Prefix(x)) => write!(f, "{x}"),
             Self::Num(i) => write!(f, "{i}"),
+            Self::Str(s) => write!(f, "\"{s}\""),
             Self::Lambda(arg, body) => write!(f, "\\{arg}. {body}"),
             Self::Nil => write!(f, "nil"),
             Self::Frozen(x) => write!(f, "'{}", *x),
@@ -47,9 +55,9 @@ impl Display for Expression {
             }
             Self::Environment(e) => {
                 write!(f, "{{")?;
-                for (k, v) in e {
-                    write!(f, " {k} =")?;
-                    write!(f, " {v}; ")?;
+                for a in e {
+                    write!(f, " {} =", a.0)?;
+                    write!(f, " {}; ", a.2)?;
                 }
                 write!(f, "}}")
             }
@@ -57,8 +65,8 @@ impl Display for Expression {
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct Assign (pub Expression, pub Expression);
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct Assign (pub Expression, pub Vec<String>, pub Expression);
 
 #[derive(Debug, Clone)]
 pub struct Operator {
@@ -210,19 +218,96 @@ impl Parser {
     pub fn parse_assign(&mut self) -> ParseResult<Assign> {
         if self.peek_type(0) == Some(&TokenType::Ident("op".into())) {
             self.next();
-            return self.parse_op()
+            return self.parse_op();
+        }
+
+        if self.peek_type(0) == Some(&TokenType::Ident("resource".into())) {
+            self.next();
+            return self.parse_resource();
         }
 
         let id = self.parse_pattern()?;
+
+        let resources = match self.peek_type(0) {
+            Some(TokenType::Op(x)) if x == "@" => {
+                self.next();
+                self.expect(TokenType::LBrace)?;
+                
+                let first = match self.peek_type(0) {
+                    Some(TokenType::Ident(x)) => x.clone(),
+                    _ => return Err(ParsingError::InvalidAssignment),
+                }; self.next();
+
+                let mut buf = vec![first];
+                loop {
+                    match self.peek_type(0) {
+                        Some(TokenType::Op(x)) if x == "," => {},
+                        _ => break,
+                    }; self.next();
+                 
+                    let more = match self.peek_type(0) {
+                        Some(TokenType::Ident(x)) => x.clone(),
+                        _ => return Err(ParsingError::InvalidAssignment),
+                    }; self.next();
+
+                    buf.push(more);
+                }
+
+                self.expect(TokenType::RBrace)?;
+                buf
+            }
+            _ => vec![],
+        };
         
         self.expect(TokenType::Op("=".into()))
             .map_err(|_| ParsingError::InvalidAssignment)?;
 
         let expr = self.parse_expr_pratt(0.)?;
 
-        Ok(Assign(id, expr))
+        Ok(Assign(id, resources, expr))
     }
+    
+    pub fn parse_resource(&mut self) -> ParseResult<Assign> {
+        let name = match self.peek_type(0) {
+            Some(TokenType::Ident(x)) => x.clone(),
+            _ => return Err(ParsingError::InvalidAssignment),
+        };
+        self.next();
+        
+        self.expect(TokenType::Op("=".into()))?;
+        
+        let val = self.parse_term()?;
 
+        Ok(Assign(Expression::Var(vec!["__RESOURCE__".into(), name]), vec![], val))
+    }
+    
+    pub fn parse_var(&mut self, first: String) -> ParseResult<Expression> {
+        let mut buf = Vec::new();
+        buf.push(first);
+        if let Some(TokenType::Dot) = self.peek_type(0) {
+            self.next();
+            loop {
+                let ident = match self.peek_type(0) {
+                    Some(TokenType::Ident(x)) => x.clone(),
+                    Some(tok) => return Err(ParsingError::Unexpected(tok.to_string())),
+                    None => return Err(ParsingError::UnexpectedEof),
+                };
+
+                self.next();
+                buf.push(ident);
+
+                match self.peek_type(0) {
+                    Some(TokenType::Dot) => {
+                        self.next();
+                        continue;
+                    }
+                    _ => break,
+                }
+            }    
+        }
+        Ok(Expression::Var(buf))
+    }
+    
     pub fn parse_keyword(&mut self, k: Keyword) -> ParseResult<Expression> {
         match k {
             Keyword::True  => Ok(Expression::Bool(true)),
@@ -234,7 +319,7 @@ impl Parser {
     pub fn parse_pattern(&mut self) -> ParseResult<Expression> {
         match self.peek_type(0) {
             Some(TokenType::Ident(x)) => {
-                let cu = Ok(Expression::Var(x.to_string()));
+                let cu = Ok(Expression::Var(vec!(x.to_string())));
                 self.next();
                 cu
             }
@@ -250,7 +335,7 @@ impl Parser {
     }
 
     pub fn parse_lambda(&mut self) -> ParseResult<Expression> {
-        let param = self.parse_expr_pratt(0.)?;
+        let param = self.parse_pattern()?;
 
         self.expect(TokenType::Dot)?;
         let body = self.parse_expr_pratt(0.)?;
@@ -262,10 +347,8 @@ impl Parser {
         let mut env = vec![];
 
         while self.peek_type(0) != Some(&TokenType::RBrace) {
-            let pat = self.parse_pattern()?;
-            self.expect(TokenType::Op("=".into()))?;
-            let val = self.parse_expr_pratt(0.)?;
-            env.push((pat, val));
+            let ass = self.parse_assign()?;
+            env.push(ass);
             self.expect(TokenType::EndExpr)?;
         }
 
@@ -275,7 +358,6 @@ impl Parser {
     }
 
     pub fn parse_op(&mut self) -> ParseResult<Assign> {
-        println!("PARSE OP ENTERED");
         let assoc = match self.peek_type(0) {
             Some(TokenType::Ident(a)) if a == "left"     => Assoc::Left,
             Some(TokenType::Ident(a)) if a == "right"    => Assoc::Right,
@@ -351,9 +433,7 @@ impl Parser {
             Expression::Lambda(param, _) => Expression::Lambda(param, Box::new(body)),
             _ => unreachable!(),
         };
-        Ok(Assign(Expression::OpSigVar(op_sig), 
-            res
-        ))
+        Ok(Assign(Expression::OpSigVar(op_sig), vec![], res ))
     }
         
     pub fn parse_term(&mut self) -> ParseResult<Expression> {
@@ -366,7 +446,7 @@ impl Parser {
             Some(Token {
                 token_type: TokenType::Ident(i),
                 ..
-            }) => Ok(Expression::Var(i)),
+            }) => self.parse_var(i),
 
             Some(Token {
                 token_type: TokenType::LBrace,
@@ -387,6 +467,11 @@ impl Parser {
                 token_type: TokenType::Keyword(k),
                 ..
             }) => self.parse_keyword(k),
+
+            Some(Token {
+                token_type: TokenType::Str(s),
+                ..
+            }) => Ok(Expression::Str(s)),
 
             Some(Token {
                 token_type: TokenType::LParen,
@@ -439,6 +524,8 @@ impl Parser {
                 | Some(TokenType::EndExpr) 
                 | Some(TokenType::RParen) 
                 | Some(TokenType::Dot)
+                | Some(TokenType::DebugDot)
+                | Some(TokenType::Backslash)
                 => break,
 
                 Some(TokenType::Op(op)) => op.clone(),

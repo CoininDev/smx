@@ -1,5 +1,4 @@
 use rustyline::{DefaultEditor, error::ReadlineError};
-use im::HashMap;
 
 use crate::{
     ast::Parser,
@@ -9,6 +8,7 @@ use crate::{
 };
 
 pub struct REPL {
+    rsrcs:Environment,
     vars: Environment,
     rl: DefaultEditor,
 }
@@ -16,6 +16,7 @@ pub struct REPL {
 impl REPL {
     pub fn new() -> Self {
         Self {
+            rsrcs: Environment::default(),
             vars: Environment::default(),
             rl: DefaultEditor::new().unwrap(),
         }
@@ -31,9 +32,9 @@ impl REPL {
                     return true;
                 }
                 
-                if line == "everything" {
+                if line == "all" {
                     for (k,v) in &self.vars {
-                        println!("{k} = {v}");
+                        println!("{k} = {v};");
                     }
                     return false;
                 }
@@ -48,7 +49,7 @@ impl REPL {
                 };
 
                 let mut parser = Parser::new(tk);
-                
+
                 let assign = parser.parse_assign();
                 let assign_pos = parser.pos;
                 parser.reset();
@@ -60,7 +61,14 @@ impl REPL {
                         #[cfg(debug_assertions)]
                         println!("(debug)\tAST: {assign:#?}");
 
-                        if let Err(e) = eval_assign(assign, &mut self.vars) {
+                        // eval_resource actively detects and ignores other assigns
+                        if let Err(e) = eval_resource(&assign, &mut self.rsrcs) {
+                            eprintln!("Eval Error (Resource): {e}");
+                            return false;
+                        }
+                        
+                        // eval_assign actively detects and ignores resources
+                        if let Err(e) = eval_assign(assign, &mut self.vars, &self.rsrcs) {
                             eprintln!("Eval Error: {e}");
                             return false;
                         }
@@ -73,7 +81,7 @@ impl REPL {
                         // println!("Assign Err: {}", _a);
                         #[cfg(debug_assertions)]
                         println!("(debug)\tAST: {expr:#?}");
-                        let res = match eval_expr(expr, &self.vars){
+                        let res = match eval_expr(expr, &self.vars, &self.rsrcs){
                             Ok(r) => r,
                             Err(e) => {
                                 eprintln!("Eval Error: {e}");

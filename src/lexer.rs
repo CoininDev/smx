@@ -36,6 +36,7 @@ impl fmt::Display for Token {
 #[derive(Debug, Clone, PartialEq)]
 pub enum TokenType {
     Number(f64),
+    Str(String),
     LParen,
     RParen,
     LBrace,
@@ -47,12 +48,14 @@ pub enum TokenType {
     Backslash,
     Apostrophe,
     Dot,
+    DebugDot,
 }
 
 impl fmt::Display for TokenType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Number(n) => write!(f,"{n}"),
+            Self::Str(s) => write!(f, "\"{s}\""),
             Self::LParen => write!(f,"("),
             Self::RParen => write!(f,")"),
             Self::LBrace => write!(f,"{{"),
@@ -60,10 +63,11 @@ impl fmt::Display for TokenType {
             Self::Op(s) => write!(f,"{s}"),
             Self::Ident(s) => write!(f,"{s}"),
             Self::Keyword(s) => write!(f,"{s:?}"),
-            Self::EndExpr => write!(f,"$"),
+            Self::EndExpr => write!(f,";"),
             Self::Backslash => write!(f, "\\"),
             Self::Apostrophe => write!(f, "'"),
             Self::Dot => write!(f, "."),
+            Self::DebugDot => write!(f, "ç"),
         }
     }
 }
@@ -126,6 +130,20 @@ impl Iterator for Lexer {
                 self.current_line += 1;
                 self.next()
             }
+            ['/', '/', ..] => {
+                while self.pos < self.text.len() {
+                    let next_slice = &self.text[self.pos..];
+                    let next_ch = next_slice.chars().next().unwrap();
+                    if next_ch != '\n' {
+                        advance(self, next_ch.len_utf8());
+                    } else {
+                        break;
+                    }
+                }
+                self.next()
+            }
+
+            ['ç', ..] => mount_token(TokenType::DebugDot),
 
             [u, ..] if op_alphabet().contains(*u) => {
                 let mut buf = String::from(*u);
@@ -151,6 +169,8 @@ impl Iterator for Lexer {
 
             ['\'', ..] => mount_token(TokenType::Apostrophe),
             ['\\', ..] => mount_token(TokenType::Backslash),
+
+            
 
             [d, ..] if d.is_ascii_digit() || *d == '.' => {
                 let mut seen_dot = *d == '.';
@@ -208,7 +228,21 @@ impl Iterator for Lexer {
                     mount_token(TokenType::Ident(buf))
                 }
             }
-
+            ['"', ..] => {
+                let mut buf = String::new();
+                while self.pos < self.text.len() {
+                    let next_slice = &self.text[self.pos..];
+                    let next_ch = next_slice.chars().next().unwrap();
+                    if next_ch != '"' {
+                        buf.push(next_ch);
+                        advance(self, next_ch.len_utf8());
+                    } else {
+                        advance(self, 1);
+                        break;
+                    }
+                }
+                mount_token(TokenType::Str(buf))
+            }
             [ch, ..] => Some(Err(LexerError::UnrecognizedChar(*ch))),
             &[] => None
         }

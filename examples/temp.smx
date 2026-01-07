@@ -1,12 +1,5 @@
-op right 2.7 (a -> b) = a, b;
+resource Example = {
+    x = \n. n + 1;
+};
 
-
-op left  2 (a ?> ((pat, expr), rest)) = 
-    zip_env(pat, a) == nil ?
-        (a ?> rest),
-        (zip_env(pat, a) :: expr);
-
-
-result = (1, 2) ?> ((#('a, 1)) -> '(a + 1)),
-                   ((#('b, 2)) -> '(a + 2)),
-                   ((#'_)      -> '(99999));
+result @{Example} = (Example.x);

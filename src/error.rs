@@ -1,6 +1,5 @@
 use std::{fmt, error::Error};
 use crate::value::*;
-use crate::ast::*;
 
 // =======================================
 // =========== Lexer Error ===============
@@ -59,7 +58,19 @@ impl Error for ParsingError {}
 // =======================================
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum EvalError {
+pub struct EvalError {
+    pub errtype: EvalErrorType,
+    pub assign : Option<String>,
+}
+
+impl EvalError {
+    pub fn new(errtype: EvalErrorType) -> Self {
+        Self {errtype, assign: None}
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum EvalErrorType {
     VariableDoesNotExists(String),
     InvalidSizeOfArgsFor(String),
     UnexpectedOperator(String),
@@ -67,16 +78,23 @@ pub enum EvalError {
     ZeroDivisor,
     NonFunctionApplication(Value),
     PatternError(String),
-    InvalidPattern(Expression),
     NotNanError(String),
 }
 
+
 impl fmt::Display for EvalError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if let Some(x) = &self.assign {
+            write!(f, "LOCALITY: {x}\n")?;
+        }
+        write!(f, "{}", self.errtype)
+    }
+}
+impl fmt::Display for EvalErrorType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::VariableDoesNotExists(var) => write!(f, "Variable not defined: {var}"),
             Self::InvalidSizeOfArgsFor(op) => write!(f, "Invalid size of args for {op}"),
-            Self::InvalidPattern(expr) => write!(f, "Invalid pattern: {expr}"),
             Self::UnexpectedOperator(op) => write!(f, "Unexpected operator {op}"),
             Self::ZeroDivisor => write!(f, "Dividing by zero is not allowed"),
             Self::PatternError(x) => write!(f, "Pattern error - {x}"),

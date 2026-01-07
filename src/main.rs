@@ -1,5 +1,4 @@
 #![feature(box_patterns)]
-
 use crate::eval::eval_program;
 use crate::repl::REPL;
 use crate::{
@@ -66,7 +65,7 @@ fn main() {
                 Err(e)  => panic!("Parser error: {e}"),
             };
             for assign in program.body {
-                println!("{} = {}", assign.0, assign.1);
+                println!("{} = {};", assign.0, assign.2);
             }
         }
 

@@ -5,6 +5,7 @@ use ordered_float::NotNan;
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Value {
     Num(NotNan<f64>),
+    Str(String),
     Lambda(Pattern, Expression, Environment),
     Environment(Environment),
     Frozen(Expression),
@@ -38,6 +39,7 @@ impl std::fmt::Display for Value {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Num(x) => write!(f, "{x}"),
+            Self::Str(s) => write!(f, "\"{s}\""),
             Self::Lambda(arg, body, _) => write!(f, "\\{arg}. {body}"),
             Self::Builtin(b) => write!(f, "{b}"),
             Self::Bool(b) => write!(f, "{b}"),
@@ -74,6 +76,9 @@ impl std::ops::Add for Value {
     fn add(self, rhs: Self) -> Self::Output {
         match (self, rhs) {
             (Value::Num(a), Value::Num(b)) => Value::Num(a + b),
+            (Value::Str(a), Value::Str(b)) => Value::Str(format!("{a}{b}")),
+            (Value::Str(s), other) => Value::Str(format!("{s}{other}")),
+            (other, Value::Str(s)) => Value::Str(format!("{other}{s}")),
             _ => Value::Nil,
         }
     }
@@ -84,6 +89,17 @@ impl std::ops::Neg for Value {
     fn neg(self) -> Self::Output {
         match self {
             Value::Num(a) => Value::Num(-a),
+            _ => Value::Nil,
+        }
+    }
+}
+
+impl std::ops::Not for Value {
+    type Output = Self;
+
+    fn not(self) -> Self::Output {
+        match self {
+            Value::Bool(b) => Value::Bool(!b),
             _ => Value::Nil,
         }
     }
