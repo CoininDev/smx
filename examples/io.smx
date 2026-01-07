@@ -1,23 +1,2 @@
-resource Example = {
-  say_hello @{IO} = \name. IO.println ("Hello, " + name + "!");
-};
-
-// make the effect on call
-f1 @{IO} = \_. IO.println "Hello, world!";
-
-// make the effect on definition
-f0 @{IO} = IO.println "Hello, world, NOW!";
-
-// IO importation just exists in the say_hello closure.
-f2 @{Example} = \_. Example.say_hello "Natasha";
-
-
-op left 3 (a :> b) = a : \_. b;
-op nonassoc 8 (~!a) = a nil;
-op left 3 (a :~ b) = a :> ~! b;
-//notice: We are never calling f0, but it still appears on console;
-result = ~! f1
-  :~ f2
-  :> {success = 1;}
-  ;
+code @{IO} = IO.read "examples/io.smx";
 

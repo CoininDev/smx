@@ -25,6 +25,7 @@ pub enum Expression {
     Lambda(Box<Expression>/* param */, Box<Expression>/* body */),
     Application(Box<Expression>, Box<Expression>),
     Operation(String, Vec<Expression>),
+    ListType(Option<Box<Expression>>) // [string | number]
 }
 
 impl Display for Expression {
@@ -43,8 +44,8 @@ impl Display for Expression {
             Self::Str(s) => write!(f, "\"{s}\""),
             Self::Lambda(arg, body) => write!(f, "\\{arg}. {body}"),
             Self::Nil => write!(f, "nil"),
-            Self::Frozen(x) => write!(f, "'{}", *x),
-            Self::Application(a, b) => write!(f, "{a} {b}"),
+            Self::Frozen(x) => write!(f, "'({})", *x),
+            Self::Application(a, b) => write!(f, "({a} {b})"),
             Self::Bool(b) => write!(f, "{b}"),
             Self::Operation(op, e) => {
                 write!(f, "({op}")?;
@@ -61,6 +62,8 @@ impl Display for Expression {
                 }
                 write!(f, "}}")
             }
+            Self::ListType(Some(x)) => write!(f, "[{}]", *x),
+            Self::ListType(None) => write!(f, "[]"),
         }
     }
 }
@@ -139,6 +142,8 @@ impl Parser {
             OpSig::Infix(":".into())  => Operator::new(Assoc::Left, 3.),
             OpSig::Infix("::".into()) => Operator::new(Assoc::Left, 3.),
             OpSig::Infix("?".into())  => Operator::new(Assoc::Left, 2.),
+
+            OpSig::Infix("|".into()) => Operator::new(Assoc::Right, 3.5),
 
             OpSig::Infix("<APPLY>".into()) => Operator::new(Assoc::Left, 10.),
         };
@@ -497,11 +502,31 @@ impl Parser {
                 Ok(Expression::Operation(op.clone(), vec![rhs]))
             }
 
+            Some(Token {
+                token_type: TokenType::LBrack,
+                ..
+            }) => {
+                if self.peek_type(0) == Some(&TokenType::RBrack) {
+                    return Ok(Expression::ListType(None));
+                }
+                let expr = self.parse_expr_pratt(0.)?;
+                match self.next() {
+                    Some(Token {
+                        token_type: TokenType::RBrack,
+                        ..
+                    }) => Ok(Expression::ListType(Some(Box::new(expr)))),
+                    other => Err(ParsingError::Expected(
+                            "]".to_string(),
+                            format!("{:?}", other.map(|t| t.token_type)),
+                    )),
+                }
+            }
+
+
             Some(token) => Err(ParsingError::InvalidExpression(format!(
                     "Unexpected token on parse_term: {:?}",
                     token.token_type
             ))),
-
             None => return Err(ParsingError::UnexpectedEof),
         }
     }
@@ -522,7 +547,9 @@ impl Parser {
             let op = match self.peek_type(0) {
                 None 
                 | Some(TokenType::EndExpr) 
-                | Some(TokenType::RParen) 
+                | Some(TokenType::RParen)
+                | Some(TokenType::RBrack)
+                | Some(TokenType::RBrace)
                 | Some(TokenType::Dot)
                 | Some(TokenType::DebugDot)
                 | Some(TokenType::Backslash)

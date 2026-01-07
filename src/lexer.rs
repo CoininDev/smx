@@ -41,6 +41,8 @@ pub enum TokenType {
     RParen,
     LBrace,
     RBrace,
+    LBrack,
+    RBrack,
     Op(String),
     Ident(String),
     Keyword(Keyword),
@@ -60,6 +62,8 @@ impl fmt::Display for TokenType {
             Self::RParen => write!(f,")"),
             Self::LBrace => write!(f,"{{"),
             Self::RBrace => write!(f,"}}"),
+            Self::LBrack => write!(f,"["),
+            Self::RBrack => write!(f,"]"),
             Self::Op(s) => write!(f,"{s}"),
             Self::Ident(s) => write!(f,"{s}"),
             Self::Keyword(s) => write!(f,"{s:?}"),
@@ -144,7 +148,18 @@ impl Iterator for Lexer {
             }
 
             ['ç', ..] => mount_token(TokenType::DebugDot),
+            ['(', ..] => mount_token(TokenType::LParen),
+            [')', ..] => mount_token(TokenType::RParen),
+            ['{', ..] => mount_token(TokenType::LBrace),
+            ['}', ..] => mount_token(TokenType::RBrace),
+            ['[', ..] => mount_token(TokenType::LBrack),
+            [']', ..] => mount_token(TokenType::RBrack),
+            [';', ..] => mount_token(TokenType::EndExpr),
+            ['.', ..] => mount_token(TokenType::Dot),
 
+            ['\'', ..] => mount_token(TokenType::Apostrophe),
+            ['\\', ..] => mount_token(TokenType::Backslash),
+ 
             [u, ..] if op_alphabet().contains(*u) => {
                 let mut buf = String::from(*u);
                 while self.pos < self.text.len() {
@@ -158,19 +173,7 @@ impl Iterator for Lexer {
                     }
                 }
                 mount_token(TokenType::Op(buf))
-            }
-            
-            ['(', ..] => mount_token(TokenType::LParen),
-            [')', ..] => mount_token(TokenType::RParen),
-            ['{', ..] => mount_token(TokenType::LBrace),
-            ['}', ..] => mount_token(TokenType::RBrace),
-            [';', ..] => mount_token(TokenType::EndExpr),
-            ['.', ..] => mount_token(TokenType::Dot),
-
-            ['\'', ..] => mount_token(TokenType::Apostrophe),
-            ['\\', ..] => mount_token(TokenType::Backslash),
-
-            
+            }           
 
             [d, ..] if d.is_ascii_digit() || *d == '.' => {
                 let mut seen_dot = *d == '.';
@@ -228,6 +231,7 @@ impl Iterator for Lexer {
                     mount_token(TokenType::Ident(buf))
                 }
             }
+
             ['"', ..] => {
                 let mut buf = String::new();
                 while self.pos < self.text.len() {
@@ -243,6 +247,7 @@ impl Iterator for Lexer {
                 }
                 mount_token(TokenType::Str(buf))
             }
+
             [ch, ..] => Some(Err(LexerError::UnrecognizedChar(*ch))),
             &[] => None
         }

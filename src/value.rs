@@ -16,21 +16,76 @@ pub enum Value {
     Nil,
 }
 
+impl Value {
+    pub fn pair_to_vec(&self) -> Vec<Value> {
+        let mut result = Vec::new();
+        let mut current = self;
+
+        loop {
+            match current {
+                Value::Pair(car, cdr) => {
+                    result.push((**car).clone());
+                    current = cdr;
+                }
+                other => {
+                    result.push(other.clone());
+                    break;
+                }
+            }
+        }
+
+        result
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Hash, Eq)]
 pub enum Pattern {
     Name(String),
+    TypedName(String, PatternType),
     Value(Box<Value>),
     Pair(Box<Pattern>, Box<Pattern>),
     Wildcard,
 }
 
+#[derive(Debug, Clone, PartialEq, Hash, Eq)]
+pub enum PatternType {
+    Nil,
+    Number,
+    String,
+    Bool,
+    Environment,
+    Frozen,
+    List(Vec<PatternType>),
+}
+
+impl std::fmt::Display for PatternType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            PatternType::Nil => write!(f, "nil"),
+            PatternType::Number => write!(f, "number"),
+            PatternType::String => write!(f, "string"),
+            PatternType::Bool => write!(f, "bool"),
+            PatternType::Environment => write!(f, "env"),
+            PatternType::Frozen => write!(f, "frozen"),
+            PatternType::List(items) => {
+                let joined = items
+                    .iter()
+                    .map(|p| p.to_string())
+                    .collect::<Vec<_>>()
+                    .join(" | ");
+                write!(f, "[{}]", joined)
+            }
+        }
+    }
+}
 impl std::fmt::Display for Pattern {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Name(x)    => write!(f, "{x}"),
-            Self::Value(x)   => write!(f, "{}", *x),
-            Self::Pair(a, b) => write!(f, "({}, {})", *a, *b),
-            Self::Wildcard   => write!(f, "_"),
+            Self::Name(x)         => write!(f, "{x}"),
+            Self::TypedName(x, t) => write!(f, "{x} ~ {t}"),
+            Self::Value(x)        => write!(f, "{}", *x),
+            Self::Pair(a, b)      => write!(f, "({}, {})", *a, *b),
+            Self::Wildcard        => write!(f, "_"),
         }
     }
 }
