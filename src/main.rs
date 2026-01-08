@@ -8,6 +8,7 @@ use crate::{
 use std::{env, fs};
 mod ast;
 mod runtime;
+mod builtin;
 mod eval;
 mod value;
 mod error;

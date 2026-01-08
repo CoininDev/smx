@@ -74,7 +74,7 @@ pub enum EvalErrorType {
     VariableDoesNotExists(String),
     InvalidSizeOfArgsFor(String),
     UnexpectedOperator(String),
-    WrongTypes(String, Vec<Value>, Vec<Value>), // operator, expected, received
+    WrongTypes(String, PatternType, Value), // operator, expected, received
     ZeroDivisor,
     NonFunctionApplication(Value),
     PatternError(String),
@@ -100,19 +100,12 @@ impl fmt::Display for EvalErrorType {
             Self::PatternError(x) => write!(f, "Pattern error - {x}"),
             Self::NotNanError(s) => write!(f, "Not Nan Error - {s}"),
             Self::WrongTypes(op, exp, received) => {
-                write!(f, "Wrong types for {op}:")?;
-                write!(f, "\nexpected: (")?;
-                for x in exp.iter() {
-                    write!(f, "{x} ")?;
-                }
-                write!(f, ")")?;
-                write!(f, "\nreceived: (")?;
-                for x in received.iter() {
-                    write!(f, "{x} ")?;
-                }
-                write!(f, ")")
+                write!(f, "Wrong types for {op}:\n")?;
+                write!(f, "expected: ({exp})\n")?;
+                write!(f, "received: ({received})")
             }
-            Self::NonFunctionApplication(v) => write!(f, "Tryng to apply something that is not a function: {v}"),
+            Self::NonFunctionApplication(v) => write!(f, 
+                "Trying to apply something that is not a function: {v}"),
         }
     }
 }

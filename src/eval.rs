@@ -1,4 +1,4 @@
-use crate::{ast::*, value::*, error::{*, EvalErrorType::*}, runtime::*};
+use crate::{ast::*, builtin::*, value::*, error::{*, EvalErrorType::*}, runtime::*};
 use im::HashMap;
 use im::hashmap;
 use im::vector;
@@ -87,7 +87,7 @@ pub fn eval_expr(e: Expression, vars: &Environment, rsrcs: &Environment) -> Eval
         Expression::Var(v) => {
             match v.as_slice() {
                 [one] => {
-                    if is_builtin(&one) {
+                    if let Some(_) = builtin_registry().into_iter().filter(|a| (*a).matches(&one)).next() {
                         return Ok(Value::Builtin(one.into()))
                     }
 
@@ -281,77 +281,23 @@ pub fn eval_pattern_pair(pat: Pattern, val: Value) -> Result<Environment, EvalEr
     }
 
     rec(pat, val, HashMap::new()).map_err(|x| eval_error!(PatternError(x)))
-}fn is_builtin(name: &str) -> bool {
-    vector![
-        "try",
-        "zip_env",
-        "eval",
-    ].contains(&name)
 }
 
 pub fn apply_builtin(x: &str, arg: Value, vars: &Environment, rsrcs: &Environment) -> EvalResult<Value> {
     let io_resource_imported = matches!(vars.get("IO"), Some(Value::Builtin(x)) if x == "IO");
-
-    match x {
-        "try" => match arg {
-            Value::Pair(a, b) => Ok(builtin_try(*a, *b, vars, rsrcs)),
-            other => Err(eval_error!(WrongTypes("try".to_string(), 
-                vec![Value::Pair(
-                    Box::new(Value::Lambda(
-                        Pattern::Wildcard, 
-                        Expression::Nil, 
-                        hashmap!{}
-                    )),
-                    Box::new(Value::Nil)
-                )], 
-                vec![other]
-            ))),
-        }
-
-        "zip_env" => match arg {
-            Value::Pair(box Value::Pattern(a), b) => Ok(builtin_zip_env(a, *b)),
-            other => Err(eval_error!(WrongTypes("zip_env".to_string(), 
-                vec![Value::Pair(
-                        Box::new(Value::Pattern(Pattern::Wildcard)),
-                        Box::new(Value::Nil)
-                )], 
-                vec![other]
-            ))),
-        }
-
-        "eval" => match arg {
-            Value::Frozen(x) => Ok(builtin_eval(x, vars, rsrcs)),
-            other => Err(eval_error!(WrongTypes("eval".to_string(),
-                vec![Value::Frozen(Expression::Nil)], vec![other]))),
-        }
-
-        "IO.print" if io_resource_imported => match arg {
-            Value::Str(x) => Ok(IoResource::print(x)),
-            other => Err(eval_error!(WrongTypes(
-                        "IO.println".to_string(), 
-                        vec![Value::Str("".into())], 
-                        vec![other]
-                     ))),
-        }
-
-        "IO.read" if io_resource_imported => match arg {
-            Value::Str(x) => Ok(IoResource::read(x)),
-            other => Err(eval_error!(WrongTypes(
-                        "IO.read".to_string(), 
-                        vec![Value::Str("".into())], 
-                        vec![other]
-                     ))),
-        }
-
-        "IO.read_file" if io_resource_imported => match arg {
-            Value::Str(x) => Ok(IoResource::read_file(x)),
-            other => Err(eval_error!(WrongTypes(
-                        "IO.read_file".to_string(), 
-                        vec![Value::Str("".into())], 
-                        vec![other]
-                     ))),
-        }       _ => Err(eval_error!(VariableDoesNotExists(format!("{x}"))))
+    
+    let bi = builtin_registry().into_iter().filter(|b| b.matches(x)).next();
+    if let Some(ci) = bi {
+        return ci.call(arg, vars, rsrcs);
     }
+
+    if x.split('.').next() == Some("IO") && io_resource_imported {
+        let fname = x.split('.').last().unwrap();
+        let io = IoResource;
+        return io.redirect(fname.to_string(), arg);
+    }
+
+    Err(eval_error!(VariableDoesNotExists(x.to_string())))
 }
 
 pub fn apply(func: Value, arg: Value, vars: &Environment, rsrcs: &Environment) -> EvalResult<Value> {
@@ -417,10 +363,8 @@ pub fn eval_operation(op: String, exprs: Vec<Expression>, vars: &Environment, rs
                         if cond { Ok(*l) } else { Ok(*r) }
                     }
                     (a, b) => Err(eval_error!(WrongTypes("?".to_string(), 
-                            vec![Value::Bool(false), Value::Pair(
-                                Box::new(Value::Nil), 
-                                Box::new(Value::Nil))],
-                            vec![a, b])))
+                            PatternType::List(vec![PatternType::Bool, PatternType::List(vec![])]),
+                            Value::Pair(Box::new(a), Box::new(b))))),
                 }
             }
             _ => Err(eval_error!(InvalidSizeOfArgsFor("?".to_string()))),
@@ -453,8 +397,8 @@ pub fn eval_operation(op: String, exprs: Vec<Expression>, vars: &Environment, rs
             [left, right] => match (eval(left)?, eval(right)?) {
                 (Value::Bool(a), Value::Bool(b)) => Ok(Value::Bool(a || b)),
                 _ => Err(eval_error!(WrongTypes("||".to_string(), 
-                            vec![Value::Bool(true), Value::Bool(true)],
-                            vec![eval(left)?, eval(right)?]))),
+                            PatternType::List(vec![PatternType::Bool]),
+                            Value::Pair(Box::new(eval(left)?), Box::new(eval(right)?))))),
             }
             _ => Err(eval_error!(InvalidSizeOfArgsFor("||".to_string()))),
         }
@@ -462,8 +406,8 @@ pub fn eval_operation(op: String, exprs: Vec<Expression>, vars: &Environment, rs
             [left, right] => match (eval(left)?, eval(right)?) {
                 (Value::Bool(a), Value::Bool(b)) => Ok(Value::Bool(a && b)),
                 _ => Err(eval_error!(WrongTypes("&&".to_string(), 
-                            vec![Value::Bool(true), Value::Bool(true)],
-                            vec![eval(left)?, eval(right)?]))),
+                            PatternType::List(vec![PatternType::Bool]),
+                            Value::Pair(Box::new(eval(left)?), Box::new(eval(right)?))))),
             }
             _ => Err(eval_error!(InvalidSizeOfArgsFor("&&".to_string()))),
         }
@@ -472,11 +416,8 @@ pub fn eval_operation(op: String, exprs: Vec<Expression>, vars: &Environment, rs
                 (a, Value::Lambda(_, _, _)) => apply(eval(right)?, a, vars, rsrcs),
                 (a, Value::Builtin(_)) => apply(eval(right)?, a, vars, rsrcs),
                 _ => Err(eval_error!(WrongTypes(":".to_string(), 
-                            vec![
-                                Value::Nil, 
-                                Value::Lambda(Pattern::Wildcard, Expression::Nil, hashmap!{})
-                            ],
-                            vec![eval(left)?, eval(right)?]))),
+                            PatternType::List(vec![PatternType::Lambda]),
+                            Value::Pair(Box::new(eval(left)?), Box::new(eval(right)?))))),
             }
             _ => Err(eval_error!(InvalidSizeOfArgsFor(":".to_string()))),
         }
@@ -484,11 +425,8 @@ pub fn eval_operation(op: String, exprs: Vec<Expression>, vars: &Environment, rs
             [left, right] => match (eval(left)?, eval(right)?) {
                 (Value::Environment(a), Value::Frozen(e)) => eval_expr(e, &a.union(vars.clone()), rsrcs),
                 _ => Err(eval_error!(WrongTypes("::".to_string(), 
-                            vec![
-                                Value::Environment(hashmap!{}), 
-                                Value::Frozen(Expression::Nil),
-                            ],
-                            vec![eval(left)?, eval(right)?]))),
+                            PatternType::List(vec![PatternType::Environment, PatternType::Frozen]),
+                            Value::Pair(Box::new(eval(left)?), Box::new(eval(right)?))))),
             }
             _ => Err(eval_error!(InvalidSizeOfArgsFor("&&".to_string()))),
         }

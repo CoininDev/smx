@@ -50,8 +50,10 @@ pub enum Pattern {
 #[derive(Debug, Clone, PartialEq, Hash, Eq)]
 pub enum PatternType {
     Nil,
+    Pattern,
     Number,
     String,
+    Lambda,
     Bool,
     Environment,
     Frozen,
@@ -65,6 +67,8 @@ impl std::fmt::Display for PatternType {
             PatternType::Number => write!(f, "number"),
             PatternType::String => write!(f, "string"),
             PatternType::Bool => write!(f, "bool"),
+            PatternType::Lambda => write!(f, "fn"),
+            PatternType::Pattern => write!(f, "pattern"),
             PatternType::Environment => write!(f, "env"),
             PatternType::Frozen => write!(f, "frozen"),
             PatternType::List(items) => {
