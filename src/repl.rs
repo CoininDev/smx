@@ -68,7 +68,7 @@ impl REPL {
                         }
                         
                         // eval_assign actively detects and ignores resources
-                        if let Err(e) = eval_assign(assign, &mut self.vars, &self.rsrcs) {
+                        if let Err(e) = eval_assign(assign, &mut self.vars, &mut self.rsrcs) {
                             eprintln!("Eval Error: {e}");
                             return false;
                         }
@@ -81,7 +81,7 @@ impl REPL {
                         // println!("Assign Err: {}", _a);
                         #[cfg(debug_assertions)]
                         println!("(debug)\tAST: {expr:#?}");
-                        let res = match eval_expr(expr, &self.vars, &self.rsrcs){
+                        let res = match eval_expr(expr, &mut self.vars, &mut self.rsrcs){
                             Ok(r) => r,
                             Err(e) => {
                                 eprintln!("Eval Error: {e}");

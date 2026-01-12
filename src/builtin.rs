@@ -29,7 +29,7 @@ impl IBuiltin for TryBuiltin {
     fn matches(&self, name: &str) -> bool {name == "try"}
     fn call(&self, arg: Value, vars: &Environment, rsrcs: &Environment) -> EvalResult<Value> {
         match arg {
-            Value::Pair(func, arg) => match apply(*func, *arg, vars, rsrcs) {
+            Value::Pair(func, arg) => match apply(*func, *arg, &mut vars.clone(), &mut rsrcs.clone()) {
                     Ok(x) => Ok(x),
                     _     => Ok(Value::Nil),
             }
@@ -44,7 +44,7 @@ impl IBuiltin for EvalBuiltin {
     fn matches(&self, name: &str) -> bool {name == "eval"}
     fn call(&self, arg: Value, vars: &Environment, rsrcs: &Environment) -> EvalResult<Value> {
         match arg {
-            Value::Frozen(frozen) => eval_expr(frozen, vars, rsrcs),
+            Value::Frozen(frozen) => eval_expr(frozen, &mut vars.clone(), &mut rsrcs.clone()),
             other => Err(eval_error!(WrongTypes("eval".into(), PatternType::Frozen, other))),
         }
     }
@@ -54,7 +54,7 @@ impl IBuiltin for EvalBuiltin {
 pub struct HasBuiltin;
 impl IBuiltin for HasBuiltin {
     fn matches(&self, name: &str) -> bool {name == "has"}
-    fn call(&self, arg: Value, vars: &Environment, rsrcs: &Environment) -> EvalResult<Value> {
+    fn call(&self, arg: Value, _vars: &Environment, _rsrcs: &Environment) -> EvalResult<Value> {
         match arg {
             Value::Pair(box Value::Environment(env), box Value::Str(name)) => 
                 Ok(Value::Bool(env.contains_key(&name))),
@@ -67,7 +67,7 @@ impl IBuiltin for HasBuiltin {
 pub struct ZipEnvBuiltin;
 impl IBuiltin for ZipEnvBuiltin {
     fn matches(&self, name: &str) -> bool {name == "zip_env"}
-    fn call(&self, arg: Value, vars: &Environment, rsrcs: &Environment) -> EvalResult<Value> {
+    fn call(&self, arg: Value, _vars: &Environment, _rsrcs: &Environment) -> EvalResult<Value> {
         match arg {
             Value::Pair(box Value::Pattern(pat), a) => 
                 match eval_pattern_pair(pat, *a) {

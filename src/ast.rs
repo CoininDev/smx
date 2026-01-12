@@ -233,7 +233,18 @@ impl Parser {
 
         let id = self.parse_pattern()?;
 
-        let resources = match self.peek_type(0) {
+        let resources = self.parse_resource_importation()?;
+
+        self.expect(TokenType::Op("=".into()))
+            .map_err(|_| ParsingError::InvalidAssignment)?;
+
+        let expr = self.parse_expr_pratt(0.)?;
+
+        Ok(Assign(id, resources, expr))
+    }
+
+    pub fn parse_resource_importation(&mut self) -> ParseResult<Vec<String>> {
+        match self.peek_type(0) {
             Some(TokenType::Op(x)) if x == "@" => {
                 self.next();
                 self.expect(TokenType::LBrace)?;
@@ -259,17 +270,10 @@ impl Parser {
                 }
 
                 self.expect(TokenType::RBrace)?;
-                buf
+                Ok(buf)
             }
-            _ => vec![],
-        };
-        
-        self.expect(TokenType::Op("=".into()))
-            .map_err(|_| ParsingError::InvalidAssignment)?;
-
-        let expr = self.parse_expr_pratt(0.)?;
-
-        Ok(Assign(id, resources, expr))
+            _ => Ok(vec![]),
+        }
     }
     
     pub fn parse_resource(&mut self) -> ParseResult<Assign> {
@@ -278,12 +282,14 @@ impl Parser {
             _ => return Err(ParsingError::InvalidAssignment),
         };
         self.next();
+
+        let imports = self.parse_resource_importation()?;
         
         self.expect(TokenType::Op("=".into()))?;
         
-        let val = self.parse_term()?;
+        let val = self.parse_expr_pratt(0.)?;
 
-        Ok(Assign(Expression::Var(vec!["__RESOURCE__".into(), name]), vec![], val))
+        Ok(Assign(Expression::Var(vec!["__RESOURCE__".into(), name]), imports, val))
     }
     
     pub fn parse_var(&mut self, first: String) -> ParseResult<Expression> {
@@ -507,6 +513,7 @@ impl Parser {
                 ..
             }) => {
                 if self.peek_type(0) == Some(&TokenType::RBrack) {
+                    self.next();
                     return Ok(Expression::ListType(None));
                 }
                 let expr = self.parse_expr_pratt(0.)?;
@@ -554,6 +561,8 @@ impl Parser {
                 | Some(TokenType::DebugDot)
                 | Some(TokenType::Backslash)
                 => break,
+
+                Some(TokenType::Op(op)) if op == "=" => break,
 
                 Some(TokenType::Op(op)) => op.clone(),
                 Some(_) => {

@@ -79,6 +79,7 @@ pub enum EvalErrorType {
     NonFunctionApplication(Value),
     PatternError(String),
     NotNanError(String),
+    GenericError(String),
 }
 
 
@@ -99,6 +100,7 @@ impl fmt::Display for EvalErrorType {
             Self::ZeroDivisor => write!(f, "Dividing by zero is not allowed"),
             Self::PatternError(x) => write!(f, "Pattern error - {x}"),
             Self::NotNanError(s) => write!(f, "Not Nan Error - {s}"),
+            Self::GenericError(s) => write!(f, "Error - {s}"),
             Self::WrongTypes(op, exp, received) => {
                 write!(f, "Wrong types for {op}:\n")?;
                 write!(f, "expected: ({exp})\n")?;

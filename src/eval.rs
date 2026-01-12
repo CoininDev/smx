@@ -17,7 +17,7 @@ fn mount_num(num: f64) -> EvalResult<NotNan<f64>> {
     NotNan::new(num).map_err(|e| eval_error!(NotNanError(e.to_string())))
 }
 
-pub fn eval_program(tree: Program) -> EvalResult<Value> {
+pub fn eval_program_ambient(tree: Program) -> EvalResult<(Environment, Environment)> {
     let mut resources = HashMap::new();
     for res in &tree.body {
         eval_resource(res, &mut resources)?;
@@ -27,6 +27,11 @@ pub fn eval_program(tree: Program) -> EvalResult<Value> {
     for assign in tree.body {
         eval_assign(assign, &mut vars, &resources)?;
     }
+    return Ok((vars, resources));
+}
+
+pub fn eval_program(tree: Program) -> EvalResult<Value> {
+    let (vars, _) = eval_program_ambient(tree)?;
 
     match vars.get("result".into()) {
         Some(a) => Ok(a.clone()),
@@ -43,7 +48,16 @@ pub fn eval_resource(res: &Assign, resources: &mut Environment) -> EvalResult<()
         _ => return Ok(()),
     };
 
-    let value = eval_expr(res.2.clone(), &Environment::default(), resources)?;
+    
+    let mut vars = hashmap!{};
+    for res in res.1.clone() {
+        match resources.get(&res) {
+            _ if is_builtin_res(res.as_str()) => vars.insert(res.clone(), Value::Builtin(res.into())),
+            Some(m) => vars.insert(res, m.clone()),
+            _ => return Err(eval_error!(VariableDoesNotExists(res))),
+        };
+    }
+    let value = eval_expr(res.2.clone(), &vars, resources)?;
     resources.insert(name, value);
     Ok(())
 }
@@ -163,13 +177,14 @@ pub fn eval_pattern_type(ty: &Expression) -> EvalResult<PatternType> {
 
     match ty {
         Expression::Var(v) if v.len() == 1 => match v[0].as_str() {
-            "nil" => Ok(PatternType::Nil),
-            "bool" => Ok(PatternType::Bool),
-            "number" => Ok(PatternType::Number),
-            "string" => Ok(PatternType::String),
-            "env" => Ok(PatternType::Environment),
-            "frozen" => Ok(PatternType::Frozen),
-            other => Err(eval_error!(PatternError(format!("unknown type name: {other}")))),
+            "nil"     => Ok(PatternType::Nil),
+            "pattern" => Ok(PatternType::Pattern),
+            "bool"    => Ok(PatternType::Bool),
+            "number"  => Ok(PatternType::Number),
+            "string"  => Ok(PatternType::String),
+            "env"     => Ok(PatternType::Environment),
+            "frozen"  => Ok(PatternType::Frozen),
+            other     => Err(eval_error!(PatternError(format!("unknown type name: {other}")))),
         }
         Expression::ListType(Some(box x)) => {
             let list: Vec<_> = listing(x.clone()).map_err(|e| eval_error!(PatternError(e)))?.into_iter().collect();
@@ -213,6 +228,12 @@ pub fn eval_pattern(input: Expression) -> EvalResult<Pattern> {
 pub fn eval_pattern_pair(pat: Pattern, val: Value) -> Result<Environment, EvalError> {
     /// ONLY checks if a value matches a PatternType. 
     /// Does NOT modify the environment.
+    // fn check_multiple_types(tys: &Vec<PatternType>, value: &Value) -> Result<(), String> {
+    //     for ty in tys {
+    //
+    //     }
+    // }
+
     fn check_type(ty: &PatternType, value: &Value) -> Result<(), String> {
         match (ty, value) {
             (PatternType::Nil, Value::Nil) => Ok(()),
@@ -231,14 +252,23 @@ pub fn eval_pattern_pair(pat: Pattern, val: Value) -> Result<Environment, EvalEr
                     for el in elements {
                         check_type(expected_ty, &el)?;
                     }
+                } else if types.len() == 0 {
+                    return match value {
+                        Value::Pair(_, _) => Ok(()),
+                        _ => Err(String::from("this is not a list"))
+                    };
                 } else {
-                    if types.len() != elements.len() {
-                        return Err(format!("Expected list of length {}, got {}", types.len(), elements.len()));
-                    }
-                    for (t, e) in types.iter().zip(elements.iter()) {
-                        check_type(t, e)?;
+                    for (e, t) in elements.iter().map(|x| (x, types)) {
+                        // check_multiple_types(t, e)?;
+                        let res = t.iter().fold(false, |acc, ty| acc || check_type(ty, e).is_ok());
+                        let types_names = t.iter().map(|m| m.to_string()).collect::<Vec<_>>().join(" | ");
+                        match res {
+                            true  => Ok(()),
+                            false => Err(format!("Type mismatch: Expected one of [{types_names}], but found {e}"))
+                        }?
                     }
                 }
+
                 Ok(())
             }
             (a, b) => Err(format!("Type Mismatch: expected {}, got {}", a, b)),
@@ -294,7 +324,7 @@ pub fn apply_builtin(x: &str, arg: Value, vars: &Environment, rsrcs: &Environmen
     if x.split('.').next() == Some("IO") && io_resource_imported {
         let fname = x.split('.').last().unwrap();
         let io = IoResource;
-        return io.redirect(fname.to_string(), arg);
+        return io.redirect(fname.to_string(), arg, vars, rsrcs);
     }
 
     Err(eval_error!(VariableDoesNotExists(x.to_string())))
@@ -308,7 +338,7 @@ pub fn apply(func: Value, arg: Value, vars: &Environment, rsrcs: &Environment) -
         _ => return Err(eval_error!(NonFunctionApplication(func))),
     };
     let new_env = eval_pattern_pair(param, arg)?;
-    let vars2 = cap_env.clone().union(new_env);
+    let vars2 = new_env.clone().union(cap_env);
     let vars2 = vars2.union(hashmap!{"__self".into() => func_clone});
     #[cfg(debug_assertions)]
     println!("apply env: {vars2:#?}");
