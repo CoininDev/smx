@@ -1,0 +1,3 @@
+say_hello @{IO} = \n. "hello " + n + "!": IO.print;
+
+

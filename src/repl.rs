@@ -5,20 +5,19 @@ use crate::{
     eval::*,
     lexer::{Lexer, Token},
     error::*,
+    value::Ambient,
 };
 
 pub struct REPL {
-    rsrcs:Environment,
-    vars: Environment,
+    ambient: Ambient,
     rl: DefaultEditor,
 }
 
 impl REPL {
     pub fn new() -> Self {
         Self {
-            rsrcs: Environment::default(),
-            vars: Environment::default(),
             rl: DefaultEditor::new().unwrap(),
+            ambient: Ambient::default(),
         }
     }
 
@@ -33,8 +32,18 @@ impl REPL {
                 }
                 
                 if line == "all" {
-                    for (k,v) in &self.vars {
+                    for (k,v) in &self.ambient.vars {
                         println!("{k} = {v};");
+                    }
+
+                    println!("resources:");
+                    for (k,v) in &self.ambient.rsrcs {
+                        println!("{k} = {v};");
+                    }
+
+                    println!("natives:");
+                    for (k,v) in self.ambient.natives.clone().into_iter().enumerate() {
+                        println!("{k} = {v:?};");
                     }
                     return false;
                 }
@@ -62,13 +71,13 @@ impl REPL {
                         println!("(debug)\tAST: {assign:#?}");
 
                         // eval_resource actively detects and ignores other assigns
-                        if let Err(e) = eval_resource(&assign, &mut self.rsrcs) {
+                        if let Err(e) = eval_resource(&assign, &mut self.ambient.rsrcs) {
                             eprintln!("Eval Error (Resource): {e}");
                             return false;
                         }
                         
                         // eval_assign actively detects and ignores resources
-                        if let Err(e) = eval_assign(assign, &mut self.vars, &mut self.rsrcs) {
+                        if let Err(e) = eval_assign(assign, &mut self.ambient) {
                             eprintln!("Eval Error: {e}");
                             return false;
                         }
@@ -81,7 +90,7 @@ impl REPL {
                         // println!("Assign Err: {}", _a);
                         #[cfg(debug_assertions)]
                         println!("(debug)\tAST: {expr:#?}");
-                        let res = match eval_expr(expr, &mut self.vars, &mut self.rsrcs){
+                        let res = match eval_expr(expr, &mut self.ambient) {
                             Ok(r) => r,
                             Err(e) => {
                                 eprintln!("Eval Error: {e}");

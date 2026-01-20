@@ -7,7 +7,7 @@ use crate::{
 };
 use std::{env, fs};
 mod ast;
-mod runtime;
+mod io;
 mod builtin;
 mod eval;
 mod value;

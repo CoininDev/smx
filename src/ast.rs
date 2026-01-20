@@ -141,7 +141,7 @@ impl Parser {
             OpSig::Infix(",".into())  => Operator::new(Assoc::Right, 3.5),
             OpSig::Infix(":".into())  => Operator::new(Assoc::Left, 3.),
             OpSig::Infix("::".into()) => Operator::new(Assoc::Left, 3.),
-            OpSig::Infix("?".into())  => Operator::new(Assoc::Left, 2.),
+            OpSig::Infix("?".into())  => Operator::new(Assoc::NonAssoc, 2.),
 
             OpSig::Infix("|".into()) => Operator::new(Assoc::Right, 3.5),
 

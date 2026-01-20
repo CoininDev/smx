@@ -1,2 +1,0 @@
-code @{IO} = IO.read "examples/io.smx";
-

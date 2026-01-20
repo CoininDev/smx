@@ -1,0 +1,10 @@
+__match_y = \self. \val. \((pat, expr), rest). eval (
+  zip_env (pat, val) != nil ? '(zip_env (pat, val) :: expr),
+  (rest != nil              ? '(self self val rest),
+  'nil)
+);
+
+op right 3.7 (a -> b) = a, b;
+
+match = __match_y __match_y;
+op left 3 (a ?> b) = match a b;

@@ -1,6 +1,38 @@
 use crate::{ast::*, eval::*};
+use std::{any::Any, rc::Rc, fmt::Debug};
 use std::cmp::Ordering;
 use ordered_float::NotNan;
+
+
+#[derive(Debug, Default, Clone)]
+pub struct Ambient {
+    pub vars: Environment,
+    pub rsrcs: Environment,
+    pub natives: Vec<Rc<dyn Any>>,
+}
+
+impl Ambient {
+    pub fn extend(&mut self, other: &Ambient) {
+        self.vars.extend(other.vars.clone());
+        self.rsrcs.extend(other.rsrcs.clone());
+        self.natives.extend(other.natives.clone());
+    }
+
+    pub fn eject(&mut self, other: &Ambient) {
+        for k in other.vars.keys() {
+            self.vars.remove(k);
+        }
+        for k in other.rsrcs.keys() {
+            self.rsrcs.remove(k);
+        }
+    }
+
+    pub fn eject_vars(&mut self, vars: &Environment) {
+        for k in vars.keys() {
+            self.vars.remove(k);
+        }
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Value {
@@ -13,6 +45,7 @@ pub enum Value {
     Builtin(String),
     Bool(bool),
     Pair(Box<Value>, Box<Value>),
+    Native(usize),
     Nil,
 }
 
@@ -99,12 +132,13 @@ impl std::fmt::Display for Value {
         match self {
             Self::Num(x) => write!(f, "{x}"),
             Self::Str(s) => write!(f, "\"{s}\""),
-            Self::Lambda(arg, body, _) => write!(f, "\\{arg}. {body}"),
+            Self::Lambda(arg, body, _) => write!(f, "(\\{arg}. {body})"),
             Self::Builtin(b) => write!(f, "{b}"),
             Self::Bool(b) => write!(f, "{b}"),
             Self::Pattern(p) => write!(f, "#{p}"),
             Self::Pair(a, b) => write!(f, "({}, {})", *a, *b),
-            Self::Frozen(e) => write!(f, "'{}", e),
+            Self::Frozen(e) => write!(f, "'{e}"),
+            Self::Native(a) => write!(f, "<#{a:02}>"),
             Self::Environment(e) => {
                 write!(f, "{{")?;
                 for (k, v) in e {

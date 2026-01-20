@@ -1,0 +1,9 @@
+import @{IO} = \(n ~ string). IO.import {file = n; skip_underscored = true;};
+
+
+op left 2 (a :> b) = a : \_. b;
+_result = 
+   import "examples/match_op.smx"
+:> import "stdlib/test.amb"
+:> "greetings from std.amb"
+;

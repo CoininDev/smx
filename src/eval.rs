@@ -1,4 +1,4 @@
-use crate::{ast::*, builtin::*, value::*, error::{*, EvalErrorType::*}, runtime::*};
+use crate::{ast::*, builtin::*, value::*, error::{*, EvalErrorType::*}, io::*};
 use im::HashMap;
 use im::hashmap;
 use im::vector;
@@ -13,25 +13,26 @@ macro_rules! eval_error {
 pub type EvalResult<T> = Result<T, EvalError>;
 pub type Environment = HashMap<String, Value>;
 
-fn mount_num(num: f64) -> EvalResult<NotNan<f64>> {
+pub fn mount_num(num: f64) -> EvalResult<NotNan<f64>> {
     NotNan::new(num).map_err(|e| eval_error!(NotNanError(e.to_string())))
 }
 
-pub fn eval_program_ambient(tree: Program) -> EvalResult<(Environment, Environment)> {
-    let mut resources = HashMap::new();
+pub fn eval_program_ambient(tree: Program) -> EvalResult<Ambient> {
+    let mut rsrcs = HashMap::new();
     for res in &tree.body {
-        eval_resource(res, &mut resources)?;
+        eval_resource(res, &mut rsrcs)?;
     }
 
-    let mut vars = HashMap::new();
+    let mut amb = Ambient{vars: HashMap::new(), rsrcs, natives: vec![]};
     for assign in tree.body {
-        eval_assign(assign, &mut vars, &resources)?;
+        eval_assign(assign, &mut amb)?;
     }
-    return Ok((vars, resources));
+
+    return Ok(amb);
 }
 
 pub fn eval_program(tree: Program) -> EvalResult<Value> {
-    let (vars, _) = eval_program_ambient(tree)?;
+    let vars = eval_program_ambient(tree)?.vars;
 
     match vars.get("result".into()) {
         Some(a) => Ok(a.clone()),
@@ -49,20 +50,20 @@ pub fn eval_resource(res: &Assign, resources: &mut Environment) -> EvalResult<()
     };
 
     
-    let mut vars = hashmap!{};
+    let mut amb = Ambient{vars: HashMap::new(), rsrcs: resources.clone(), natives:vec![]};
     for res in res.1.clone() {
         match resources.get(&res) {
-            _ if is_builtin_res(res.as_str()) => vars.insert(res.clone(), Value::Builtin(res.into())),
-            Some(m) => vars.insert(res, m.clone()),
+            _ if is_builtin_res(res.as_str()) => amb.vars.insert(res.clone(), Value::Builtin(res.into())),
+            Some(m) => amb.vars.insert(res, m.clone()),
             _ => return Err(eval_error!(VariableDoesNotExists(res))),
         };
     }
-    let value = eval_expr(res.2.clone(), &vars, resources)?;
+    let value = eval_expr(res.2.clone(), &mut amb)?;
     resources.insert(name, value);
     Ok(())
 }
 
-pub fn eval_assign(a: Assign, vars: &mut Environment, rsrcs: &Environment) -> EvalResult<()> {
+pub fn eval_assign(a: Assign, amb: &mut Ambient) -> EvalResult<()> {
     if let Expression::Var(m) = &a.0 {
         if m[0] == "__RESOURCE__" {
             return Ok(());
@@ -71,23 +72,28 @@ pub fn eval_assign(a: Assign, vars: &mut Environment, rsrcs: &Environment) -> Ev
 
     let pat = eval_pattern(a.0)?;
     
-    let mut vars2 = vars.clone();
-    for res in a.1 {
-        match rsrcs.get(&res) {
-            _ if is_builtin_res(res.as_str()) => vars2.insert(res.clone(), Value::Builtin(res.into())),
-            Some(m) => vars2.insert(res, m.clone()),
+    let mut amb2 = amb.clone();
+    for res in a.1.clone() {
+        match amb2.rsrcs.get(&res) {
+            _ if is_builtin_res(res.as_str()) => amb2.vars.insert(res.clone(), Value::Builtin(res.into())),
+            Some(m) => amb2.vars.insert(res, m.clone()),
             _ => return Err(eval_error!(VariableDoesNotExists(res))),
         };
     }
 
-    let value = eval_expr(a.2, &vars2, &rsrcs).map_err(|e| EvalError{
+    let value = eval_expr(a.2, &mut amb2).map_err(|e| EvalError{
         errtype: e.errtype, 
         assign: Some(pat.to_string())
     })?;
+
+    for res in a.1 {
+        amb2.vars.remove(&res);
+    }
     
     #[cfg(debug_assertions)]
     println!("eval_assign adding: {pat} = {value}");
-    vars.extend(eval_pattern_pair(pat, value)?.into_iter());
+    amb2.vars.extend(eval_pattern_pair(pat, value)?.into_iter());
+    *amb = amb2;
     Ok(())
 }
 fn is_builtin_res(name: &str) -> bool {
@@ -96,7 +102,7 @@ fn is_builtin_res(name: &str) -> bool {
     ].contains(&name)
 }
 
-pub fn eval_expr(e: Expression, vars: &Environment, rsrcs: &Environment) -> EvalResult<Value> {
+pub fn eval_expr(e: Expression, amb: &mut Ambient) -> EvalResult<Value> {
     match e {
         Expression::Var(v) => {
             match v.as_slice() {
@@ -105,7 +111,7 @@ pub fn eval_expr(e: Expression, vars: &Environment, rsrcs: &Environment) -> Eval
                         return Ok(Value::Builtin(one.into()))
                     }
 
-                    match vars.get(one) {
+                    match amb.vars.get(one) {
                         Some(i) => Ok(i.clone()),
                         None    => Err(eval_error!(VariableDoesNotExists(format!("{one}")))),
                     }
@@ -115,7 +121,7 @@ pub fn eval_expr(e: Expression, vars: &Environment, rsrcs: &Environment) -> Eval
                         return Ok(Value::Builtin(v.join(".")));
                     }
 
-                    let a = match vars.get(&v[0]) {
+                    let a = match amb.vars.get(&v[0]) {
                         Some(Value::Environment(env)) => Ok(env.clone()),
                         Some(_) => Err(eval_error!(
                                 VariableDoesNotExists(format!("{} of type env", v[0])))
@@ -123,14 +129,18 @@ pub fn eval_expr(e: Expression, vars: &Environment, rsrcs: &Environment) -> Eval
                         None=> Err(eval_error!(VariableDoesNotExists(format!("{}", v[0])))),
                     }?;
 
-                    eval_expr(Expression::Var(v[1..].to_vec()), &a, rsrcs)
+                    eval_expr(Expression::Var(v[1..].to_vec()), &mut Ambient{
+                        vars: a, 
+                        rsrcs: amb.rsrcs.clone(), 
+                        natives: amb.natives.clone()
+                    })
                 }
             }
             
         }
         Expression::OpSigVar(OpSig::Prefix(v))|
         Expression::OpSigVar(OpSig::Infix(v))=> {
-            match vars.get(&format!("<operator>{v}")) {
+            match amb.vars.get(&format!("<operator>{v}")) {
                 Some(i) => Ok(i.clone()),
                 None    => Err(eval_error!(VariableDoesNotExists(format!("{v}")))),
             }
@@ -140,20 +150,22 @@ pub fn eval_expr(e: Expression, vars: &Environment, rsrcs: &Environment) -> Eval
         Expression::Nil       => Ok(Value::Nil),
         Expression::Frozen(m) => Ok(Value::Frozen(*m)),
         Expression::Environment(e) => {
-            let mut env: HashMap<String, Value> = hashmap!{};
+            let mut amb2: Ambient = Ambient::default();
             for ass in e {
-                eval_assign(ass, &mut env, rsrcs)?;
+                eval_assign(ass, &mut amb2)?;
             }
-            Ok(Value::Environment(env))
+            Ok(Value::Environment(amb2.vars))
         } 
         Expression::Bool(b)   => Ok(Value::Bool(b)),
-        Expression::Operation(op, exprs) => eval_operation(op, exprs, vars, rsrcs),
-        Expression::Lambda(param, body) => Ok(Value::Lambda(eval_pattern(*param)?, *body, vars.clone())),
+        Expression::Operation(op, exprs) => eval_operation(op, exprs, amb),
+        Expression::Lambda(param, body) => Ok(Value::Lambda(
+                eval_pattern(*param)?, *body, amb.vars.clone())
+        ),
+
         Expression::Application(f, x) => apply(
-            eval_expr(*f, vars, rsrcs)?, 
-            eval_expr(*x, vars, rsrcs)?, 
-            vars, 
-            rsrcs
+            eval_expr(*f, amb)?, 
+            eval_expr(*x, amb)?, 
+            amb
         ),
         Expression::ListType(_) => Err(eval_error!(PatternError(
                     "The [1, 2, 3] syntax is just valid in types, please, use (1, 2, 3) instead".into()
@@ -219,7 +231,7 @@ pub fn eval_pattern(input: Expression) -> EvalResult<Pattern> {
         //used in custom operators definition only
         Expression::OpSigVar(OpSig::Prefix(x)) |
         Expression::OpSigVar(OpSig::Infix(x))  => Ok(Pattern::Name(format!("<custom_operator>{x}"))),
-        other => Ok(Pattern::Value(Box::new(eval_expr(other, &hashmap!{}, &hashmap!{})?))),
+        other => Ok(Pattern::Value(Box::new(eval_expr(other, &mut Ambient::default())?))),
     }
 }
 
@@ -313,42 +325,49 @@ pub fn eval_pattern_pair(pat: Pattern, val: Value) -> Result<Environment, EvalEr
     rec(pat, val, HashMap::new()).map_err(|x| eval_error!(PatternError(x)))
 }
 
-pub fn apply_builtin(x: &str, arg: Value, vars: &Environment, rsrcs: &Environment) -> EvalResult<Value> {
-    let io_resource_imported = matches!(vars.get("IO"), Some(Value::Builtin(x)) if x == "IO");
+pub fn apply_builtin(x: &str, arg: Value, amb: &mut Ambient) -> EvalResult<Value> {
+    let io_resource_imported = matches!(amb.vars.get("IO"), Some(Value::Builtin(x)) if x == "IO");
     
     let bi = builtin_registry().into_iter().filter(|b| b.matches(x)).next();
     if let Some(ci) = bi {
-        return ci.call(arg, vars, rsrcs);
+        return ci.call(arg, amb);
     }
 
     if x.split('.').next() == Some("IO") && io_resource_imported {
-        let fname = x.split('.').last().unwrap();
+        let fnames: Vec<String> = x.split('.').map(|f| f.to_string()).collect();
         let io = IoResource;
-        return io.redirect(fname.to_string(), arg, vars, rsrcs);
+        if fnames.len() == 2 {
+            return io.redirect(fnames.last().unwrap().to_string(), arg, amb);
+        }
+        return io.objects(fnames[1].clone(), fnames[2..].to_vec(), arg, amb)
     }
 
     Err(eval_error!(VariableDoesNotExists(x.to_string())))
 }
 
-pub fn apply(func: Value, arg: Value, vars: &Environment, rsrcs: &Environment) -> EvalResult<Value> {
+pub fn apply(func: Value, arg: Value, amb: &mut Ambient) -> EvalResult<Value> {
     let func_clone = func.clone();
     let (param, body, cap_env) = match func {
         Value::Lambda(param, body, cap_env) => (param, body, cap_env),
-        Value::Builtin(x) => return apply_builtin(&x, arg, vars, rsrcs),
+        Value::Builtin(x) => return apply_builtin(&x, arg, amb),
         _ => return Err(eval_error!(NonFunctionApplication(func))),
     };
-    let new_env = eval_pattern_pair(param, arg)?;
-    let vars2 = new_env.clone().union(cap_env);
-    let vars2 = vars2.union(hashmap!{"__self".into() => func_clone});
+    let env_pat = eval_pattern_pair(param, arg)?;
+    let env_pat = env_pat.union(hashmap!{"__self".into() => func_clone});
+    let vars2 = env_pat.clone().union(cap_env);
     #[cfg(debug_assertions)]
     println!("apply env: {vars2:#?}");
-    eval_expr(body, &vars2, rsrcs)
+    amb.vars.extend(vars2);
+    let res = eval_expr(body, amb);
+    amb.eject_vars(&env_pat);
+    res
 }
 
-pub fn eval_operation(op: String, exprs: Vec<Expression>, vars: &Environment, rsrcs: &Environment) 
+pub fn eval_operation(op: String, exprs: Vec<Expression>, amb: &mut Ambient) 
     -> EvalResult<Value> {  
-    let eval = |x: &Expression| -> EvalResult<Value> {
-        eval_expr(x.clone(), vars, rsrcs)
+    let amb_clone = amb.clone();
+    let mut eval = |x: &Expression| -> EvalResult<Value> {
+        eval_expr(x.clone(), amb)
     };
 
     match op.as_str() {
@@ -443,8 +462,8 @@ pub fn eval_operation(op: String, exprs: Vec<Expression>, vars: &Environment, rs
         }
         ":" => match exprs.as_slice() {
             [left, right] => match (eval(left)?, eval(right)?) {
-                (a, Value::Lambda(_, _, _)) => apply(eval(right)?, a, vars, rsrcs),
-                (a, Value::Builtin(_)) => apply(eval(right)?, a, vars, rsrcs),
+                (a, Value::Lambda(_, _, _)) => apply(eval(right)?, a, amb),
+                (a, Value::Builtin(_)) => apply(eval(right)?, a, amb),
                 _ => Err(eval_error!(WrongTypes(":".to_string(), 
                             PatternType::List(vec![PatternType::Lambda]),
                             Value::Pair(Box::new(eval(left)?), Box::new(eval(right)?))))),
@@ -453,16 +472,22 @@ pub fn eval_operation(op: String, exprs: Vec<Expression>, vars: &Environment, rs
         }
         "::" => match exprs.as_slice() {
             [left, right] => match (eval(left)?, eval(right)?) {
-                (Value::Environment(a), Value::Frozen(e)) => eval_expr(e, &a.union(vars.clone()), rsrcs),
+                (Value::Environment(a), Value::Frozen(e)) => eval_expr(e, 
+                    &mut Ambient {
+                        vars: a.union(amb.vars.clone()), 
+                        rsrcs: amb.rsrcs.clone(), 
+                        natives: amb.natives.clone()
+                    }
+                ),
                 _ => Err(eval_error!(WrongTypes("::".to_string(), 
                             PatternType::List(vec![PatternType::Environment, PatternType::Frozen]),
                             Value::Pair(Box::new(eval(left)?), Box::new(eval(right)?))))),
             }
             _ => Err(eval_error!(InvalidSizeOfArgsFor("&&".to_string()))),
         }
-        otherwise if vars.contains_key(&format!("<custom_operator>{otherwise}")) => {
+        otherwise if amb_clone.vars.contains_key(&format!("<custom_operator>{otherwise}")) => {
             let op_key = format!("<custom_operator>{otherwise}");
-            let op_def = match vars.get(&op_key) {
+            let op_def = match amb_clone.vars.get(&op_key) {
                 Some(v) => v.clone(), 
                 None => return Err(eval_error!(UnexpectedOperator(otherwise.to_string()))),
             };
@@ -470,14 +495,12 @@ pub fn eval_operation(op: String, exprs: Vec<Expression>, vars: &Environment, rs
                 [expr] => apply(
                     op_def.clone(),
                     eval(expr)?, 
-                    vars,
-                    rsrcs
+                    amb
                 ),
                 [left, right] => apply(
                     op_def.clone(),
                     Value::Pair(Box::new(eval(left)?), Box::new(eval(right)?)),
-                    vars,
-                    rsrcs
+                    amb
                 ),
                 _ => Err(eval_error!(InvalidSizeOfArgsFor(otherwise.to_string()))),
             }
