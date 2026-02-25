@@ -5,4 +5,3 @@ __sum_y = \self. \(acc ~ number). \(a ~ number, rest). eval (
 );
 
 sum = (__sum_y __sum_y) 0;
-

@@ -1,0 +1,9 @@
+- PATH to stdlib (SMXLIB_PATH)
+- IO.import_smxlib function
+- smx_lib/
+  - math
+  - strings
+  - collections
+  - web
+  - gfx
+  - sfx

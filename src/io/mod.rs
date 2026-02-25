@@ -23,6 +23,7 @@ impl IoResource {
             "read"  => self.read(value),
             "import_as_env" => self.import_as_env(value),
             "import" => self.import(value, amb),
+            "import_smxlib" => self.import_smxlib(value, amb),
             _ => Err(eval_error!(VariableDoesNotExists(function)))
         }
     }
@@ -140,6 +141,13 @@ impl IoResource {
                 Ok(Value::Nil)
             }
             other => Err(eval_error!(WrongTypes("IO.import".into(), PatternType::String, other))),
+        }
+    }
+
+    pub fn import_smxlib(&self, _: Value, amb: &mut Ambient) -> EvalResult<Value> {
+        match std::env::var("SMXLIB_MAIN_FILE") {
+            Ok(var) => self.import(Value::Environment(hashmap! {"file".into() => Value::Str(var)}), amb),
+            Err(cu) => Err(eval_error!(GenericError(cu.to_string()))),
         }
     }
 }

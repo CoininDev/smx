@@ -50,7 +50,7 @@ pub fn eval_resource(res: &Assign, resources: &mut Environment) -> EvalResult<()
     };
 
     
-    let mut amb = Ambient{vars: HashMap::new(), rsrcs: resources.clone(), natives:vec![]};
+    let mut amb = Ambient {vars: HashMap::new(), rsrcs: resources.clone(), natives:vec![]};
     for res in res.1.clone() {
         match resources.get(&res) {
             _ if is_builtin_res(res.as_str()) => amb.vars.insert(res.clone(), Value::Builtin(res.into())),
