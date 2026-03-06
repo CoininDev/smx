@@ -1,3 +1,5 @@
 op left 2 (a :> b) = a : \_. b;
 
-_result @{IO} = IO.import {file = "./stdlib/test.amb";};
+_import @{IO} = \(filename ~ string). {file = filename; skip_underscored = true;};
+
+_result @{IO} = _import "./stdlib/test.amb";

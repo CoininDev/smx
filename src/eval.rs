@@ -62,7 +62,39 @@ pub fn eval_resource(res: &Assign, resources: &mut Environment) -> EvalResult<()
     resources.insert(name, value);
     Ok(())
 }
+pub fn eval_assign_imut(a: Assign, amb: &Ambient) -> EvalResult<Ambient> {
+    if let Expression::Var(m) = &a.0 {
+        if m[0] == "__RESOURCE__" {
+            return Ok(Ambient::default());
+        }
+    }
 
+    let pat = eval_pattern(a.0)?;
+    
+    let mut amb2 = amb.clone();
+    for res in a.1.clone() {
+        match amb2.rsrcs.get(&res) {
+            _ if is_builtin_res(res.as_str()) => amb2.vars.insert(res.clone(), Value::Builtin(res.into())),
+            Some(m) => amb2.vars.insert(res, m.clone()),
+            _ => return Err(eval_error!(VariableDoesNotExists(res))),
+        };
+    }
+
+    let value = eval_expr(a.2, &mut amb2).map_err(|e| EvalError{
+        errtype: e.errtype, 
+        assign: Some(pat.to_string())
+    })?;
+
+    for res in a.1 {
+        amb2.vars.remove(&res);
+    }
+    
+    #[cfg(debug_assertions)]
+    println!("eval_assign adding: {pat} = {value}");
+    let mut r = Ambient::default();
+    r.vars.extend(eval_pattern_pair(pat, value)?.into_iter());
+    Ok(r)
+}
 pub fn eval_assign(a: Assign, amb: &mut Ambient) -> EvalResult<()> {
     if let Expression::Var(m) = &a.0 {
         if m[0] == "__RESOURCE__" {
@@ -150,11 +182,13 @@ pub fn eval_expr(e: Expression, amb: &mut Ambient) -> EvalResult<Value> {
         Expression::Nil       => Ok(Value::Nil),
         Expression::Frozen(m) => Ok(Value::Frozen(*m)),
         Expression::Environment(e) => {
-            let mut amb2: Ambient = Ambient::default();
+            let mut amb2: Ambient = amb.clone();
+            let mut new_amb: Ambient = Ambient::default();
             for ass in e {
-                eval_assign(ass, &mut amb2)?;
+                let aaa = eval_assign_imut(ass, &mut amb2)?;
+                new_amb.extend(&aaa);
             }
-            Ok(Value::Environment(amb2.vars))
+            Ok(Value::Environment(new_amb.vars))
         } 
         Expression::Bool(b)   => Ok(Value::Bool(b)),
         Expression::Operation(op, exprs) => eval_operation(op, exprs, amb),
