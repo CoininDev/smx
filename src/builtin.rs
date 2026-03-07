@@ -129,7 +129,7 @@ impl IBuiltin for TailBuiltin {
     fn call(&self, arg: Value, _amb: &Ambient) -> EvalResult<Value> {
         match arg {
             Value::Pair(_, b) => Ok(*b),
-            other => Err(eval_error!(WrongTypes("head".into(), PatternType::List(vec![]), other))),
+            other => Err(eval_error!(WrongTypes("tail".into(), PatternType::List(vec![]), other))),
         }
     }
 }

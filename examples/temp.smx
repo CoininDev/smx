@@ -1,3 +1,9 @@
-op left 3 (a $$$ b) = a + b;
-_importation @{IO} = IO.import {file = "examples/match_op.smx";};
-_xxx = "8=====D";
+
+
+
+
+result @{IO} = 
+    IO.run "echo $HOME"
+    : \x. x.stdout
+    : \x. x + "/.local/lib/smx/std.smx"
+    ;

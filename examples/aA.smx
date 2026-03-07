@@ -1,9 +1,0 @@
-_ @{IO} = IO.import {file = "examples/match_op.smx";};
-
-result = (1, "oi") ?> (
-
-#('1, 'x) -> '(x),
-#('a, '_) -> '(a + 12),
-#'_       -> '"???",
-nil);
-

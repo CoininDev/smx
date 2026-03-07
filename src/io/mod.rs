@@ -1,5 +1,6 @@
 use crate::{value::*, lexer::*, eval::*, ast::*, error::EvalErrorType::*, error::*};
 use im::hashmap;
+use ordered_float::NotNan;
 
 mod file;
 mod net;
@@ -24,6 +25,7 @@ impl IoResource {
             "import_as_env" => self.import_as_env(value),
             "import" => self.import(value, amb),
             "import_smxlib" => self.import_smxlib(value, amb),
+            "run" => self.run(value),
             _ => Err(eval_error!(VariableDoesNotExists(function)))
         }
     }
@@ -130,7 +132,7 @@ impl IoResource {
                     let va = new_amb
                         .vars
                         .into_iter()
-                        .filter(|(k,_)| k.starts_with("_"))
+                        .filter(|(k,_)| !k.starts_with("_"))
                         .collect::<im::HashMap<String, Value>>();
 
                     new_amb.vars = va;
@@ -146,8 +148,31 @@ impl IoResource {
 
     pub fn import_smxlib(&self, _: Value, amb: &mut Ambient) -> EvalResult<Value> {
         match std::env::var("SMXLIB_MAIN_FILE") {
-            Ok(var) => self.import(Value::Environment(hashmap! {"file".into() => Value::Str(var)}), amb),
+            Ok(var) => self.import(Value::Environment(hashmap! {"file".into() => Value::Str(var), "skip_underscored".into() => Value::Bool(true)}), amb),
             Err(cu) => Err(eval_error!(GenericError(cu.to_string()))),
+        }
+    }
+
+    pub fn run(&self, arg: Value) -> EvalResult<Value> {
+        fn crop_newline(mut s: String) -> String {
+            if s.ends_with("\n") {
+                s.pop();
+            }
+            s
+        }
+
+        match arg {
+            Value::Str(command) => {
+                let mut cmd = std::process::Command::new("bash");
+                cmd.arg("-c").arg(command);
+                let output = cmd.output().map_err(|e| eval_error!(GenericError(e.to_string())))?;
+                Ok(Value::Environment(hashmap!{
+                    "stdout".into() => Value::Str(crop_newline(String::from_utf8_lossy(&output.stdout).to_string())),
+                    "stderr".into() => Value::Str(crop_newline(String::from_utf8_lossy(&output.stderr).to_string())),
+                    "status".into() => Value::Num(mount_num(output.status.code().unwrap_or(0).into()).unwrap()),
+                }))
+            }
+            other => Err(eval_error!(WrongTypes("IO.run".into(), PatternType::String, other))),
         }
     }
 }
@@ -176,4 +201,9 @@ pub fn util_eval_expr_str(input: &str, amb: &Ambient) -> Result<Value, String> {
         rsrcs: amb.rsrcs.clone(), 
         natives: vec![]})
     .map_err(|e| e.to_string())
+}
+
+
+fn mount_num(num: f64) -> ParseResult<NotNan<f64>> {
+    NotNan::new(num).map_err(|e| ParsingError::NotNanError(e.to_string())) 
 }
