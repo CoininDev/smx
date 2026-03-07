@@ -83,6 +83,18 @@ frozen_expr  = '(a + 15);
 
 A frozen expression is only evaluated when explicitly forced with `eval`.
 
+## Patterns
+
+You can also create and use patterns as values, this is mainly for match usability but it is still in development
+
+```smx
+pat = #5;
+pat = #'a; // The variables are evaluated before, so if you want it to be just a name, you need to freeze it (')
+
+pat = #('a, 2, 3, 'b, nil) // You can use lists with '(' and ')'
+pat = #'_ // _ (wildcard) is also a name, so it needs to be freezed as well
+```
+
 ### Tail-Call Recursion Example
 
 ```smx
@@ -90,6 +102,27 @@ tail_call = \self. \a. eval ( a == 0 ? 'true, '(self (a - 1)) );
 ```
 
 Because the recursive branch is frozen, evaluation is deferred until needed — enabling safe tail-call patterns.
+
+---
+
+## Builtins
+We have builtin utilities. For example:
+
+#### try
+Returns nil when an error occurs instead of canceling.
+
+#### eval
+Forces the execution of a freezed expression.
+
+#### has
+Checks if a name exists in an environment
+
+#### zip_env
+Constructs a new environment from a pattern and a value.
+It supports lists.
+
+#### head and tail
+Self explanatory.
 
 ---
 

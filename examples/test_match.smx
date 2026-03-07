@@ -1,0 +1,9 @@
+_importation @{IO} = IO.import {file = "examples/match_op.smx";};
+
+result @{IO} = 
+  (3) ?> (
+  #('(a ~ string), '(b ~ number))     -> '(b + 42),
+  #('(a ~ number), 'b, '(c ~ number)) -> '(IO.print b: \_. a + b),
+  #'(x ~ number)                      -> '(x + 14),
+  #'_                                 -> '0
+);

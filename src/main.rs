@@ -19,6 +19,10 @@ fn main() {
     let args = env::args().skip(1).collect::<Vec<String>>();
 
     match args.first() {
+        Some(a) if a == "-t" => {
+            println!("OIII");
+        }
+
         Some(a) if a == "-i" => {
             println!("<== Welcome to Simple Interactive Mode ==>");
             let mut repl = REPL::new();

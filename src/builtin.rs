@@ -47,6 +47,8 @@ pub fn builtin_registry() -> Vec<Box<dyn IBuiltin>> {
         n(EvalBuiltin),
         n(HasBuiltin),
         n(ZipEnvBuiltin),
+        n(HeadBuiltin),
+        n(TailBuiltin)
     ]
 }
 
@@ -103,6 +105,31 @@ impl IBuiltin for ZipEnvBuiltin {
                 }
 
             other => Err(eval_error!(WrongTypes("zip_env".into(), PatternType::List(vec![PatternType::Pattern, PatternType::Nil]), other))),
+        }
+    }
+}
+
+#[derive(Clone)]
+pub struct HeadBuiltin;
+impl IBuiltin for HeadBuiltin {
+    fn matches(&self, name: &str) -> bool {name == "head"}
+    fn call(&self, arg: Value, _amb: &Ambient) -> EvalResult<Value> {
+        match arg {
+            Value::Pair(a, b) => Ok(*a), 
+            other => Err(eval_error!(WrongTypes("head".into(), PatternType::List(vec![]), other))),
+        }
+    }
+}
+
+
+#[derive(Clone)]
+pub struct TailBuiltin;
+impl IBuiltin for TailBuiltin {
+    fn matches(&self, name: &str) -> bool {name == "tail"}
+    fn call(&self, arg: Value, _amb: &Ambient) -> EvalResult<Value> {
+        match arg {
+            Value::Pair(_, b) => Ok(*b),
+            other => Err(eval_error!(WrongTypes("head".into(), PatternType::List(vec![]), other))),
         }
     }
 }

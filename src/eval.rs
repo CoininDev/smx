@@ -388,9 +388,10 @@ pub fn apply(func: Value, arg: Value, amb: &mut Ambient) -> EvalResult<Value> {
     };
     let env_pat = eval_pattern_pair(param, arg)?;
     let env_pat = env_pat.union(hashmap!{"__self".into() => func_clone});
-    let vars2 = env_pat.clone().union(cap_env);
-    #[cfg(debug_assertions)]
-    println!("apply env: {vars2:#?}");
+    
+    let mut vars2 = cap_env;
+    vars2.extend(env_pat.clone());
+    
     amb.vars.extend(vars2);
     let res = eval_expr(body, amb);
     amb.eject_vars(&env_pat);
@@ -506,13 +507,16 @@ pub fn eval_operation(op: String, exprs: Vec<Expression>, amb: &mut Ambient)
         }
         "::" => match exprs.as_slice() {
             [left, right] => match (eval(left)?, eval(right)?) {
-                (Value::Environment(a), Value::Frozen(e)) => eval_expr(e, 
+                (Value::Environment(a), Value::Frozen(e)) => {
+                    let mut new_vars = amb.vars.clone();
+                    new_vars.extend(a);
+                    eval_expr(e, 
                     &mut Ambient {
-                        vars: a.union(amb.vars.clone()), 
+                        vars: new_vars, 
                         rsrcs: amb.rsrcs.clone(), 
                         natives: amb.natives.clone()
                     }
-                ),
+                )},
                 _ => Err(eval_error!(WrongTypes("::".to_string(), 
                             PatternType::List(vec![PatternType::Environment, PatternType::Frozen]),
                             Value::Pair(Box::new(eval(left)?), Box::new(eval(right)?))))),

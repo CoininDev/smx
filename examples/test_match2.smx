@@ -1,0 +1,9 @@
+_importation @{IO} = IO.import {file = "stdlib/matchop.amb";};
+
+result @{IO} = 
+  (1, "example", 3) ?> (
+  #('(a ~ string), '(b ~ number))     -> '(b + 42),
+  #('(a ~ number), 'b, '(c ~ number)) -> '(IO.print b: \_. a + b),
+  #'(x ~ number)                      -> '(x + 14),
+  #'_                                 -> '0
+);
