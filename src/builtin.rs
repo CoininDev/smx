@@ -116,6 +116,11 @@ impl IBuiltin for HeadBuiltin {
     fn call(&self, arg: Value, _amb: &Ambient) -> EvalResult<Value> {
         match arg {
             Value::Pair(a, b) => Ok(*a), 
+            Value::Nil => Ok(Value::Nil),
+            Value::Str(s) => match s.chars().next() {
+                Some(c) => Ok(Value::Str(c.to_string())),
+                None => Ok(Value::Nil),
+            },
             other => Err(eval_error!(WrongTypes("head".into(), PatternType::List(vec![]), other))),
         }
     }
@@ -129,6 +134,8 @@ impl IBuiltin for TailBuiltin {
     fn call(&self, arg: Value, _amb: &Ambient) -> EvalResult<Value> {
         match arg {
             Value::Pair(_, b) => Ok(*b),
+            Value::Nil => Ok(Value::Nil),
+            Value::Str(s) => Ok(Value::Str(s.chars().skip(1).collect())),
             other => Err(eval_error!(WrongTypes("tail".into(), PatternType::List(vec![]), other))),
         }
     }

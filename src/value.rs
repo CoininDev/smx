@@ -54,12 +54,17 @@ impl Value {
         let mut result = Vec::new();
         let mut current = self;
 
+        if let Value::Nil = current {
+            return result;
+        }
+
         loop {
             match current {
                 Value::Pair(car, cdr) => {
                     result.push((**car).clone());
                     current = cdr;
                 }
+                Value::Nil => break,
                 other => {
                     result.push(other.clone());
                     break;

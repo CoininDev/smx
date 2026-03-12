@@ -1,0 +1,57 @@
+_length__y = \self. \(s ~ string). \(acc ~ number). eval (
+    s == "" ? 'acc,
+    '(self self (tail s) (acc + 1))
+);
+
+_take__y = \self. \(n ~ number). \(s ~ string). \(acc ~ string). eval (
+    n == 0 ? 'acc,
+    (s == "" ? 'acc,
+    '(self self (n - 1) (tail s) (acc + (head s)))
+));
+
+_drop__y = \self. \(n ~ number). \(s ~ string). eval (
+    n == 0 ? 's,
+    (s == "" ? 's,
+    '(self self (n - 1) (tail s)))
+);
+
+_to_list__y = \self. \(s ~ string). \(acc ~ []). eval (
+    s == "" ? 'acc,
+    '(self self (tail s) (head s, acc))
+);
+
+_from_list__y = \self. \(l ~ []). \(acc ~ string). eval (
+    l == nil ? 'acc,
+    '(self self (tail l) (acc + (head l)))
+);
+
+_starts_with__y = \self. \(s ~ string). \(n ~ string). eval (
+    n == "" ? 'true,
+    (s == "" ? 'false,
+    (head s == head n ? '(self self (tail s) (tail n)), 
+    'false))
+);
+
+_contains_slice__y = \self. \(s ~ string). \(n ~ string). eval (
+    _starts_with__y _starts_with__y s n ? 'true,
+    (s == "" ? 'false,
+    '(self self (tail s) n))
+);
+
+strings = {
+    length = \(s ~ string). _length__y _length__y s 0;
+    take = \(n ~ number). \(s ~ string). _take__y _take__y n s "";
+    drop = \(n ~ number). \(s ~ string). _drop__y _drop__y n s;
+    from_list = \(l ~ []). _from_list__y _from_list__y l "";
+    
+    // doing twice because _to_list__y reverses the list
+    to_list = \(s ~ string). 
+        _to_list__y _to_list__y s nil 
+        : from_list
+        : \b. _to_list__y _to_list__y b nil;
+    
+    reverse = \(s ~ string). _to_list__y _to_list__y s nil : from_list;
+    contains = \(s ~ string). \(n ~ string). _contains_slice__y _contains_slice__y s n;
+    starts_with = \(s ~ string). \(n ~ string). _starts_with__y _starts_with__y s n;
+    ends_with = \(s ~ string). \(n ~ string). _starts_with__y _starts_with__y (reverse s) (reverse n);
+};

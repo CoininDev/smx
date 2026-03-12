@@ -1,0 +1,12 @@
+op left 2 (a :> b) = a : \_. b;
+
+_import @{IO} = \(filename ~ string). IO.import {file = filename; skip_underscored = true;};
+
+_smx_path @{IO} = IO.run "echo $SMXLIB_PATH": \x. x.stdout;
+
+
+_result @{IO} = 
+     _import (_smx_path + "/test.amb") 
+  :> _import (_smx_path + "/matchop.amb")
+  :> _import (_smx_path + "/strings.amb")
+  :> _import (_smx_path + "/lists.amb");

@@ -1,6 +1,7 @@
 use std::fs::File;
 use std::io::prelude::*;
 use crate::io::*;
+use std::env;
 
 macro_rules! eval_error {
     ($err: expr) => {
@@ -55,12 +56,12 @@ impl FileIoObj {
                     Some(Value::Str(x)) => x.clone(),
                     _ => return error()
                 };
-
+                let path = env::current_dir().unwrap_or_default().display().to_string();
                 match file.write_all(&content.clone().into_bytes()) {
                     Ok(_) => Ok(Value::Environment(
                         hashmap!{
                             "write_file_success".into() => Value::Bool(true),
-                            "content".into() => Value::Str(content)
+                            "path".into() => Value::Str(format!("{path}/{name}"))
                         }
                     )),
                     Err(e) => Ok(Value::Environment(

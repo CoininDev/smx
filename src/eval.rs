@@ -185,8 +185,9 @@ pub fn eval_expr(e: Expression, amb: &mut Ambient) -> EvalResult<Value> {
             let mut amb2: Ambient = amb.clone();
             let mut new_amb: Ambient = Ambient::default();
             for ass in e {
-                let aaa = eval_assign_imut(ass, &mut amb2)?;
+                let aaa = eval_assign_imut(ass, &amb2)?;
                 new_amb.extend(&aaa);
+                amb2.extend(&aaa);
             }
             Ok(Value::Environment(new_amb.vars))
         } 
@@ -230,6 +231,7 @@ pub fn eval_pattern_type(ty: &Expression) -> EvalResult<PatternType> {
             "string"  => Ok(PatternType::String),
             "env"     => Ok(PatternType::Environment),
             "frozen"  => Ok(PatternType::Frozen),
+            "fn"      => Ok(PatternType::Lambda),
             other     => Err(eval_error!(PatternError(format!("unknown type name: {other}")))),
         }
         Expression::ListType(Some(box x)) => {
@@ -270,7 +272,6 @@ pub fn eval_pattern(input: Expression) -> EvalResult<Pattern> {
 }
 
 
-// Ok, i give up, i'm using AI code on this one i dont care.
 pub fn eval_pattern_pair(pat: Pattern, val: Value) -> Result<Environment, EvalError> {
     /// ONLY checks if a value matches a PatternType. 
     /// Does NOT modify the environment.
@@ -288,7 +289,11 @@ pub fn eval_pattern_pair(pat: Pattern, val: Value) -> Result<Environment, EvalEr
             (PatternType::Environment, Value::Environment(_)) => Ok(()),
             (PatternType::Number, Value::Num(_)) => Ok(()),
             (PatternType::Frozen, Value::Frozen(_)) => Ok(()),
+            (PatternType::Lambda, Value::Lambda(_, _, _)) | (PatternType::Lambda, Value::Builtin(_)) => Ok(()),
             (PatternType::List(types), _) => {
+                if let Value::Nil = value {
+                    return Ok(());
+                }
                 let elements = value.pair_to_vec();
                 // If the type is [string], we check if EVERY element is a string.
                 // Note: If your language uses [type1, type2] as a schema, 
@@ -390,11 +395,24 @@ pub fn apply(func: Value, arg: Value, amb: &mut Ambient) -> EvalResult<Value> {
     let env_pat = env_pat.union(hashmap!{"__self".into() => func_clone});
     
     let mut vars2 = cap_env;
-    vars2.extend(env_pat.clone());
+    vars2.extend(env_pat);
     
-    amb.vars.extend(vars2);
-    let res = eval_expr(body, amb);
-    amb.eject_vars(&env_pat);
+    let mut new_amb = Ambient {
+        vars: vars2.clone(),
+        rsrcs: amb.rsrcs.clone(),
+        natives: amb.natives.clone(),
+    };
+    
+    let res = eval_expr(body, &mut new_amb);
+
+    // Sync back variables that were NOT in the original local_bindings (parameters/captures)
+    // and were added to new_amb.vars during eval_expr (e.g. by IO.import)
+    for (k, v) in new_amb.vars {
+        if !vars2.contains_key(&k) {
+            amb.vars.insert(k, v);
+        }
+    }
+    
     res
 }
 

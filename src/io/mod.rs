@@ -147,9 +147,9 @@ impl IoResource {
     }
 
     pub fn import_smxlib(&self, _: Value, amb: &mut Ambient) -> EvalResult<Value> {
-        match std::env::var("SMXLIB_MAIN_FILE") {
-            Ok(var) => self.import(Value::Environment(hashmap! {"file".into() => Value::Str(var), "skip_underscored".into() => Value::Bool(true)}), amb),
-            Err(cu) => Err(eval_error!(GenericError(cu.to_string()))),
+        match std::env::var("SMXLIB_PATH") {
+            Ok(var) => self.import(Value::Environment(hashmap! {"file".into() => Value::Str(format!("{var}/smx.smx")), "skip_underscored".into() => Value::Bool(true)}), amb),
+            Err(cu) => Err(eval_error!(GenericError(format!("SMXLIB_PATH: {}", cu)))),
         }
     }
 
