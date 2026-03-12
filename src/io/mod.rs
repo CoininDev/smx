@@ -1,7 +1,7 @@
-use crate::{value::*, lexer::*, eval::*, ast::*, error::EvalErrorType::*, error::*};
+use crate::{ast::*, error::{EvalErrorType::*, *}, eval::{*}, lexer::*, value::*};
 use im::hashmap;
-use ordered_float::NotNan;
-
+use ordered_float::{Float, NotNan};
+use rand::RngExt;
 mod file;
 mod net;
 
@@ -26,6 +26,7 @@ impl IoResource {
             "import" => self.import(value, amb),
             "import_smxlib" => self.import_smxlib(value, amb),
             "run" => self.run(value),
+            "random" => self.random(value),
             _ => Err(eval_error!(VariableDoesNotExists(function)))
         }
     }
@@ -175,6 +176,52 @@ impl IoResource {
             other => Err(eval_error!(WrongTypes("IO.run".into(), PatternType::String, other))),
         }
     }
+
+    pub fn random(&self, arg: Value) -> EvalResult<Value> {
+        fn error() -> EvalResult<Value> {
+            Err(eval_error!(GenericError(String::from(r"
+            expected for IO.random env with:
+                min ~ number
+                max ~ number 
+                integer ~ bool
+            "))))
+        }
+
+        match arg {
+            Value::Environment(env) => {
+                let min = match env.get("min") {
+                    Some(&Value::Num(a)) => a,
+                    _ => mount_num(0f64).unwrap(),
+                };
+
+                let max = match env.get("max") {
+                    Some(&Value::Num(a)) => a,
+                    _ => mount_num(1f64).unwrap(),
+                };
+
+                let integer = match env.get("integer") {
+                    Some(&Value::Bool(a)) => a,
+                    _ => false,
+                };
+                let mut rng = rand::rng();
+
+                if integer {
+                    let i = rng.random_range(min.floor()..max.floor()).floor() as i64;
+                    match mount_num(i as f64) {
+                        Ok(num) => return Ok(Value::Num(num)),
+                        Err(a)  => return Err(eval_error!(GenericError(a.to_string())))
+                    }
+                } 
+                
+                let i = rng.random_range(min.into_inner()..max.into_inner());
+                match mount_num(i) {
+                    Ok(num) => return Ok(Value::Num(num)),
+                    Err(a)  => return Err(eval_error!(GenericError(a.to_string())))
+                }
+            }
+            _ => error(),
+        }
+    }
 }
 
 pub fn util_eval_program_ambient_str(input:&str) -> Result<Ambient, String> {
@@ -204,6 +251,3 @@ pub fn util_eval_expr_str(input: &str, amb: &Ambient) -> Result<Value, String> {
 }
 
 
-fn mount_num(num: f64) -> ParseResult<NotNan<f64>> {
-    NotNan::new(num).map_err(|e| ParsingError::NotNanError(e.to_string())) 
-}
