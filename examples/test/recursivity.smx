@@ -1,7 +1,0 @@
-fact = \n. eval (
-    n == 0 ? 
-      '1, 
-      '(n * __self(n - 1))
-);
-
-result = fact 5;

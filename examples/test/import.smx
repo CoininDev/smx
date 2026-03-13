@@ -1,2 +1,0 @@
-resource Library @{IO} = IO.import_as_env "lib/example.smx";
-

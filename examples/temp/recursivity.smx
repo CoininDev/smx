@@ -1,0 +1,15 @@
+fact = \n. eval (
+    n == 0 ? 
+      '1, 
+      '(n * __self(n - 1))
+);
+
+//if you have more than 1 curried parameter, the __self refers to the most inner function
+//so you need to pass the self parameter explicitly
+fact2 @{IO} = \self. \passes. \n. eval (
+    n == 0 ? 
+      '1, 
+      '(n * (self self (passes + "": IO.print : \_. passes + 1) (n - 1)))
+);
+
+result = fact2 fact2 0 5;

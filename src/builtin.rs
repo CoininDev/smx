@@ -1,19 +1,18 @@
-use crate::{eval::*, value::*, error::*, error::EvalErrorType::*, ast::*};
+use im::hashmap;
+
+use crate::{ast::*, error::EvalErrorType::*, error::*, eval::*, value::*};
 
 macro_rules! eval_error {
     ($err: expr) => {
         EvalError::new($err)
-    }
+    };
 }
 
 // operator #
 pub fn builtin_pattern_from_value(v: Value) -> Value {
     fn rec(v: Value) -> Pattern {
-         match v {
-            Value::Pair(a, b) => Pattern::Pair(
-                    Box::new(rec(*a)), 
-                    Box::new(rec(*b))
-            ),
+        match v {
+            Value::Pair(a, b) => Pattern::Pair(Box::new(rec(*a)), Box::new(rec(*b))),
             Value::Frozen(Expression::Var(x)) => match x.as_slice() {
                 [w] if w == "_" => Pattern::Wildcard,
                 [any] => Pattern::Name(any.into()),
@@ -21,15 +20,14 @@ pub fn builtin_pattern_from_value(v: Value) -> Value {
             },
             Value::Frozen(Expression::Operation(op, xs)) if op == "~" => match xs.as_slice() {
                 [Expression::Var(left), Expression::Var(_)]
-                | [Expression::Var(left), Expression::ListType(_)]=> 
-                    Pattern::TypedName(
-                        left[0].clone(), 
-                        eval_pattern_type(&xs[1]).unwrap_or(PatternType::Nil)
-                    ),
+                | [Expression::Var(left), Expression::ListType(_)] => Pattern::TypedName(
+                    left[0].clone(),
+                    eval_pattern_type(&xs[1]).unwrap_or(PatternType::Nil),
+                ),
                 _ => Pattern::Wildcard,
             },
             other => Pattern::Value(Box::new(other)),
-         }
+        }
     }
     Value::Pattern(rec(v))
 }
@@ -48,21 +46,29 @@ pub fn builtin_registry() -> Vec<Box<dyn IBuiltin>> {
         n(HasBuiltin),
         n(ZipEnvBuiltin),
         n(HeadBuiltin),
-        n(TailBuiltin)
+        n(TailBuiltin),
     ]
 }
 
 #[derive(Clone)]
 pub struct TryBuiltin;
 impl IBuiltin for TryBuiltin {
-    fn matches(&self, name: &str) -> bool {name == "try"}
+    fn matches(&self, name: &str) -> bool {
+        name == "try"
+    }
     fn call(&self, arg: Value, amb: &Ambient) -> EvalResult<Value> {
         match arg {
             Value::Pair(func, arg) => match apply(*func, *arg, &mut amb.clone()) {
-                    Ok(x) => Ok(x),
-                    _     => Ok(Value::Nil),
-            }
-            other => Err(eval_error!(WrongTypes("try".into(), PatternType::List(vec![]), other))),
+                Ok(x) => Ok(x),
+                _ => Ok(Value::Environment(
+                    hashmap! {"err".into() => Value::Bool(true)},
+                )),
+            },
+            other => Err(eval_error!(WrongTypes(
+                "try".into(),
+                PatternType::List(vec![]),
+                other
+            ))),
         }
     }
 }
@@ -70,11 +76,17 @@ impl IBuiltin for TryBuiltin {
 #[derive(Clone)]
 pub struct EvalBuiltin;
 impl IBuiltin for EvalBuiltin {
-    fn matches(&self, name: &str) -> bool {name == "eval"}
+    fn matches(&self, name: &str) -> bool {
+        name == "eval"
+    }
     fn call(&self, arg: Value, amb: &Ambient) -> EvalResult<Value> {
         match arg {
             Value::Frozen(frozen) => eval_expr(frozen, &mut amb.clone()),
-            other => Err(eval_error!(WrongTypes("eval".into(), PatternType::Frozen, other))),
+            other => Err(eval_error!(WrongTypes(
+                "eval".into(),
+                PatternType::Frozen,
+                other
+            ))),
         }
     }
 }
@@ -82,12 +94,19 @@ impl IBuiltin for EvalBuiltin {
 #[derive(Clone)]
 pub struct HasBuiltin;
 impl IBuiltin for HasBuiltin {
-    fn matches(&self, name: &str) -> bool {name == "has"}
+    fn matches(&self, name: &str) -> bool {
+        name == "has"
+    }
     fn call(&self, arg: Value, _amb: &Ambient) -> EvalResult<Value> {
         match arg {
-            Value::Pair(box Value::Environment(env), box Value::Str(name)) => 
-                Ok(Value::Bool(env.contains_key(&name))),
-            other => Err(eval_error!(WrongTypes("has".into(), PatternType::List(vec![PatternType::Environment, PatternType::String]), other))),
+            Value::Pair(box Value::Environment(env), box Value::Str(name)) => {
+                Ok(Value::Bool(env.contains_key(&name)))
+            }
+            other => Err(eval_error!(WrongTypes(
+                "has".into(),
+                PatternType::List(vec![PatternType::Environment, PatternType::String]),
+                other
+            ))),
         }
     }
 }
@@ -95,16 +114,21 @@ impl IBuiltin for HasBuiltin {
 #[derive(Clone)]
 pub struct ZipEnvBuiltin;
 impl IBuiltin for ZipEnvBuiltin {
-    fn matches(&self, name: &str) -> bool {name == "zip_env"}
+    fn matches(&self, name: &str) -> bool {
+        name == "zip_env"
+    }
     fn call(&self, arg: Value, _amb: &Ambient) -> EvalResult<Value> {
         match arg {
-            Value::Pair(box Value::Pattern(pat), a) => 
-                match eval_pattern_pair(pat, *a) {
-                    Ok(v) => Ok(Value::Environment(v)),
-                    Err(_) => Ok(Value::Nil),
-                }
+            Value::Pair(box Value::Pattern(pat), a) => match eval_pattern_pair(pat, *a) {
+                Ok(v) => Ok(Value::Environment(v)),
+                Err(_) => Ok(Value::Nil),
+            },
 
-            other => Err(eval_error!(WrongTypes("zip_env".into(), PatternType::List(vec![PatternType::Pattern, PatternType::Nil]), other))),
+            other => Err(eval_error!(WrongTypes(
+                "zip_env".into(),
+                PatternType::List(vec![PatternType::Pattern, PatternType::Nil]),
+                other
+            ))),
         }
     }
 }
@@ -112,31 +136,42 @@ impl IBuiltin for ZipEnvBuiltin {
 #[derive(Clone)]
 pub struct HeadBuiltin;
 impl IBuiltin for HeadBuiltin {
-    fn matches(&self, name: &str) -> bool {name == "head"}
+    fn matches(&self, name: &str) -> bool {
+        name == "head"
+    }
     fn call(&self, arg: Value, _amb: &Ambient) -> EvalResult<Value> {
         match arg {
-            Value::Pair(a, b) => Ok(*a), 
+            Value::Pair(a, b) => Ok(*a),
             Value::Nil => Ok(Value::Nil),
             Value::Str(s) => match s.chars().next() {
                 Some(c) => Ok(Value::Str(c.to_string())),
                 None => Ok(Value::Nil),
             },
-            other => Err(eval_error!(WrongTypes("head".into(), PatternType::List(vec![]), other))),
+            other => Err(eval_error!(WrongTypes(
+                "head".into(),
+                PatternType::List(vec![]),
+                other
+            ))),
         }
     }
 }
 
-
 #[derive(Clone)]
 pub struct TailBuiltin;
 impl IBuiltin for TailBuiltin {
-    fn matches(&self, name: &str) -> bool {name == "tail"}
+    fn matches(&self, name: &str) -> bool {
+        name == "tail"
+    }
     fn call(&self, arg: Value, _amb: &Ambient) -> EvalResult<Value> {
         match arg {
             Value::Pair(_, b) => Ok(*b),
             Value::Nil => Ok(Value::Nil),
             Value::Str(s) => Ok(Value::Str(s.chars().skip(1).collect())),
-            other => Err(eval_error!(WrongTypes("tail".into(), PatternType::List(vec![]), other))),
+            other => Err(eval_error!(WrongTypes(
+                "tail".into(),
+                PatternType::List(vec![]),
+                other
+            ))),
         }
     }
 }

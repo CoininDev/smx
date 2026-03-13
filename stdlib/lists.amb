@@ -38,7 +38,7 @@ _zip__y = \self. \(l1 ~ []). \(l2 ~ []). \(acc ~ []). eval (
 );
 
 _unzip__y = \self. \(l ~ []). \(acc1 ~ []). \(acc2 ~ []). eval (
-    l == nil ? '(acc1, acc2),
+    l == nil ? '(acc1, acc2, nil),
     '(self self (tail l) ((l: head: head), acc1) ((l: head: tail), acc2))
 );
 
@@ -47,15 +47,44 @@ _reverse__y = \self. \(l ~ []). \(acc ~ []). eval (
     '(self self (tail l) (head l, acc))
 );
 
+_chunks_of__y = \self. \(n ~ number). \(l ~ []). 
+{
+    take = \(n ~ number). \(l ~ []). 
+        _take__y _take__y n l nil
+        : \x. _reverse__y _reverse__y x nil;
+    drop = \(n ~ number). \(l ~ []). _drop__y _drop__y n l;
+}::'(
+eval (
+    l == nil ? 'nil,
+    '(take n l, self self n (drop n l))
+));
+
+
+_unnilize__y = \self. \(l ~ []). 
+{
+    __match_y = \self. \val. \((pat, expr), rest). eval (
+    zip_env (pat, val) != nil ? '(zip_env (pat, val) :: expr),
+    (rest != nil              ? '(self self val rest),
+    'nil)
+    );
+
+    op right 3.7 (a -> b) = a, b;
+    op left 3 (a ?> b) = __match_y __match_y a b;
+}::'(
+eval (
+    try (tail,  l)
+));
+
 lists = {
     length = \(l ~ []). _length__y _length__y l 0;
     reverse = \(l ~ []). _reverse__y _reverse__y l nil;
+    unnilize = _unnilize__y _unnilize__y;
 
     take = \(n ~ number). \(l ~ []). 
         _take__y _take__y n l nil
         : reverse;
     
-    drop = \(n ~ number). \(l ~ []). _drop__y _drop__y n l;
+    drop = _drop__y _drop__y;
     
     map = \(f ~ fn). \(l ~ []). 
         _map__y _map__y f l nil
@@ -65,8 +94,7 @@ lists = {
         _filter__y _filter__y f l nil
         : reverse;
     
-    reduce = \(f ~ fn). \(l ~ []). \(init). 
-        _reduce__y _reduce__y f l init;
+    reduce = _reduce__y _reduce__y;
     
     zip = \(l1 ~ []). \(l2 ~ []). 
         _zip__y _zip__y l1 l2 nil
@@ -75,4 +103,6 @@ lists = {
     unzip = \(l ~ []). 
         _unzip__y _unzip__y l nil nil
         : \(a1, a2). (reverse a1, reverse a2);
+
+    chunks_of = _chunks_of__y _chunks_of__y;
 };
