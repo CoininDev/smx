@@ -1,0 +1,12 @@
+_ @{IO} = IO.import_smxlib 0;
+
+text = "a.megbimnoeb";
+result = text
+    : strings.to_list
+    : lists.chunks_of 2
+    : lists.map lists.unnilize
+    : lists.unzip
+    : \(a, b). lists.join a b
+    : strings.from_list
+    : strings.reverse
+    ;
