@@ -1,7 +1,7 @@
-use crate::{lexer::*, error::ParsingError};
-use std::fmt::Display;
+use crate::{error::ParsingError, lexer::*};
 use im::{HashMap, hashmap};
 use ordered_float::NotNan;
+use std::fmt::Display;
 
 #[derive(Debug, Clone)]
 pub struct Program {
@@ -9,7 +9,7 @@ pub struct Program {
 }
 
 fn mount_num(num: f64) -> ParseResult<NotNan<f64>> {
-    NotNan::new(num).map_err(|e| ParsingError::NotNanError(e.to_string())) 
+    NotNan::new(num).map_err(|e| ParsingError::NotNanError(e.to_string()))
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -22,10 +22,13 @@ pub enum Expression {
     Nil,
     Frozen(Box<Expression>),
     Environment(Vec<Assign>),
-    Lambda(Box<Expression>/* param */, Box<Expression>/* body */),
+    Lambda(
+        Box<Expression>, /* param */
+        Box<Expression>, /* body */
+    ),
     Application(Box<Expression>, Box<Expression>),
     Operation(String, Vec<Expression>),
-    ListType(Option<Box<Expression>>) // [string | number]
+    ListType(Option<Box<Expression>>), // [string | number]
 }
 
 impl Display for Expression {
@@ -37,7 +40,7 @@ impl Display for Expression {
                     write!(f, ".{s}")?;
                 }
                 write!(f, "")
-            },
+            }
             Self::OpSigVar(OpSig::Infix(x)) => write!(f, "{x}"),
             Self::OpSigVar(OpSig::Prefix(x)) => write!(f, "{x}"),
             Self::Num(i) => write!(f, "{i}"),
@@ -69,25 +72,29 @@ impl Display for Expression {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct Assign (pub Expression, pub Vec<String>, pub Expression);
+pub struct Assign(pub Expression, pub Vec<String>, pub Expression);
 
 #[derive(Debug, Clone)]
 pub struct Operator {
     pub meaning: Option<Expression>,
     prec: f32,
-    pub assoc: Assoc
+    pub assoc: Assoc,
 }
 
 impl Operator {
     pub fn new(assoc: Assoc, prec: f32) -> Self {
-        Self {prec, assoc, meaning: None}
+        Self {
+            prec,
+            assoc,
+            meaning: None,
+        }
     }
 
     pub fn prec_pair(&self) -> (f32, f32) {
         match self.assoc {
-            Assoc::Left     => (self.prec, self.prec + 0.1),
-            Assoc::Right    => (self.prec + 0.1, self.prec),
-            Assoc::NonAssoc => (self.prec, self.prec)
+            Assoc::Left => (self.prec, self.prec + 0.1),
+            Assoc::Right => (self.prec + 0.1, self.prec),
+            Assoc::NonAssoc => (self.prec, self.prec),
         }
     }
 }
@@ -96,37 +103,39 @@ impl Operator {
 pub enum Assoc {
     Left,
     Right,
-    NonAssoc
+    NonAssoc,
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub enum OpSig {
     Infix(String),
-    Prefix(String)
+    Prefix(String),
 }
 
 #[derive(Debug, Clone)]
 pub struct Parser {
     tokens: Vec<Token>,
-    op_table: HashMap<OpSig, Operator>,
+    pub op_table: HashMap<OpSig, Operator>,
     pub pos: usize,
+    pub dot_is_separator: bool,
 }
-
 
 pub type ParseResult<T> = Result<T, ParsingError>;
 
 impl Parser {
     pub fn new(tokens: Vec<Token>) -> Self {
-        let op_table = hashmap!{
+        let op_table = hashmap! {
+            OpSig::Infix("<APPLY>".into()) => Operator::new(Assoc::Left, 100.0),
+
             OpSig::Prefix("#".into()) => Operator::new(Assoc::NonAssoc, 10.),
             OpSig::Prefix("+".into()) => Operator::new(Assoc::NonAssoc, 10.),
             OpSig::Prefix("-".into()) => Operator::new(Assoc::NonAssoc, 10.),
             OpSig::Prefix("!".into()) => Operator::new(Assoc::NonAssoc, 10.),
 
-            OpSig::Infix("+".into())  => Operator::new(Assoc::Left, 6.),
-            OpSig::Infix("-".into())  => Operator::new(Assoc::Left, 6.),
             OpSig::Infix("*".into())  => Operator::new(Assoc::Left, 7.),
             OpSig::Infix("/".into())  => Operator::new(Assoc::Left, 7.),
+            OpSig::Infix("+".into())  => Operator::new(Assoc::Left, 6.),
+            OpSig::Infix("-".into())  => Operator::new(Assoc::Left, 6.),
 
             OpSig::Infix("<".into())  => Operator::new(Assoc::Left, 5.),
             OpSig::Infix(">".into())  => Operator::new(Assoc::Left, 5.),
@@ -134,26 +143,31 @@ impl Parser {
             OpSig::Infix("!=".into()) => Operator::new(Assoc::Left, 5.),
             OpSig::Infix("<=".into()) => Operator::new(Assoc::Left, 5.),
             OpSig::Infix(">=".into()) => Operator::new(Assoc::Left, 5.),
-            
+
             OpSig::Infix("||".into()) => Operator::new(Assoc::Left, 4.),
             OpSig::Infix("&&".into()) => Operator::new(Assoc::Left, 4.),
 
-            OpSig::Infix(",".into())  => Operator::new(Assoc::Right, 3.5),
-            OpSig::Infix(":".into())  => Operator::new(Assoc::Left, 3.),
-            OpSig::Infix("::".into()) => Operator::new(Assoc::Left, 3.),
-            OpSig::Infix("?".into())  => Operator::new(Assoc::NonAssoc, 2.),
+            OpSig::Infix(",".into())  => Operator::new(Assoc::Right, 2.5),
+            OpSig::Infix("?".into())  => Operator::new(Assoc::Right, 2.5),
+            OpSig::Infix(":".into())  => Operator::new(Assoc::Left, 2.),
+            OpSig::Infix("::".into()) => Operator::new(Assoc::Left, 2.),
 
+            //only used in types
             OpSig::Infix("|".into()) => Operator::new(Assoc::Right, 3.5),
 
-            OpSig::Infix("<APPLY>".into()) => Operator::new(Assoc::Left, 10.),
         };
-        Self { tokens, pos: 0, op_table }
+        Self {
+            tokens,
+            pos: 0,
+            op_table,
+            dot_is_separator: false,
+        }
     }
 
-    pub fn binding_power(&self, op:OpSig) -> (f32, f32) {
+    pub fn binding_power(&self, op: OpSig) -> (f32, f32) {
         match self.op_table.get(&op) {
             Some(a) => a.prec_pair(),
-            _ => Operator::new(Assoc::Left, 8.).prec_pair()
+            _ => Operator::new(Assoc::Left, 8.).prec_pair(),
         }
     }
 
@@ -195,7 +209,6 @@ impl Parser {
 }
 
 impl Parser {
-
     pub fn parse_program(&mut self) -> ParseResult<Program> {
         let mut buf = vec![];
         while self.peek(0).is_some() {
@@ -203,7 +216,7 @@ impl Parser {
                 self.next();
                 continue;
             }
-            
+
             match self.parse_assign() {
                 Ok(assign) => {
                     buf.push(assign);
@@ -248,23 +261,26 @@ impl Parser {
             Some(TokenType::Op(x)) if x == "@" => {
                 self.next();
                 self.expect(TokenType::LBrace)?;
-                
+
                 let first = match self.peek_type(0) {
                     Some(TokenType::Ident(x)) => x.clone(),
                     _ => return Err(ParsingError::InvalidAssignment),
-                }; self.next();
+                };
+                self.next();
 
                 let mut buf = vec![first];
                 loop {
                     match self.peek_type(0) {
-                        Some(TokenType::Op(x)) if x == "," => {},
+                        Some(TokenType::Op(x)) if x == "," => {}
                         _ => break,
-                    }; self.next();
-                 
+                    };
+                    self.next();
+
                     let more = match self.peek_type(0) {
                         Some(TokenType::Ident(x)) => x.clone(),
                         _ => return Err(ParsingError::InvalidAssignment),
-                    }; self.next();
+                    };
+                    self.next();
 
                     buf.push(more);
                 }
@@ -275,7 +291,7 @@ impl Parser {
             _ => Ok(vec![]),
         }
     }
-    
+
     pub fn parse_resource(&mut self) -> ParseResult<Assign> {
         let name = match self.peek_type(0) {
             Some(TokenType::Ident(x)) => x.clone(),
@@ -284,18 +300,22 @@ impl Parser {
         self.next();
 
         let imports = self.parse_resource_importation()?;
-        
+
         self.expect(TokenType::Op("=".into()))?;
-        
+
         let val = self.parse_expr_pratt(0.)?;
 
-        Ok(Assign(Expression::Var(vec!["__RESOURCE__".into(), name]), imports, val))
+        Ok(Assign(
+            Expression::Var(vec!["__RESOURCE__".into(), name]),
+            imports,
+            val,
+        ))
     }
-    
+
     pub fn parse_var(&mut self, first: String) -> ParseResult<Expression> {
         let mut buf = Vec::new();
         buf.push(first);
-        if let Some(TokenType::Dot) = self.peek_type(0) {
+        if !self.dot_is_separator && self.peek_type(0) == Some(&TokenType::Dot) {
             self.next();
             loop {
                 let ident = match self.peek_type(0) {
@@ -314,23 +334,23 @@ impl Parser {
                     }
                     _ => break,
                 }
-            }    
+            }
         }
         Ok(Expression::Var(buf))
     }
-    
+
     pub fn parse_keyword(&mut self, k: Keyword) -> ParseResult<Expression> {
         match k {
-            Keyword::True  => Ok(Expression::Bool(true)),
+            Keyword::True => Ok(Expression::Bool(true)),
             Keyword::False => Ok(Expression::Bool(false)),
-            Keyword::Nil   => Ok(Expression::Nil),
+            Keyword::Nil => Ok(Expression::Nil),
         }
     }
 
     pub fn parse_pattern(&mut self) -> ParseResult<Expression> {
         match self.peek_type(0) {
             Some(TokenType::Ident(x)) => {
-                let cu = Ok(Expression::Var(vec!(x.to_string())));
+                let cu = Ok(Expression::Var(vec![x.to_string()]));
                 self.next();
                 cu
             }
@@ -339,18 +359,22 @@ impl Parser {
                 let a = self.parse_expr_pratt(0.)?;
                 self.expect(TokenType::RParen)?;
                 Ok(a)
-            },
+            }
             Some(x) => Err(ParsingError::Expected("pattern".to_string(), x.to_string())),
-            None    => Err(ParsingError::UnexpectedEof)
+            None => Err(ParsingError::UnexpectedEof),
         }
     }
 
     pub fn parse_lambda(&mut self) -> ParseResult<Expression> {
-        let param = self.parse_pattern()?;
+        let old_flag = self.dot_is_separator;
+        self.dot_is_separator = true;
+        let param = self.parse_expr_pratt(0.);
+        self.dot_is_separator = old_flag;
+        let param = param?;
 
         self.expect(TokenType::Dot)?;
         let body = self.parse_expr_pratt(0.)?;
-        
+
         Ok(Expression::Lambda(Box::new(param), Box::new(body)))
     }
 
@@ -370,43 +394,54 @@ impl Parser {
 
     pub fn parse_op(&mut self) -> ParseResult<Assign> {
         let assoc = match self.peek_type(0) {
-            Some(TokenType::Ident(a)) if a == "left"     => Assoc::Left,
-            Some(TokenType::Ident(a)) if a == "right"    => Assoc::Right,
+            Some(TokenType::Ident(a)) if a == "left" => Assoc::Left,
+            Some(TokenType::Ident(a)) if a == "right" => Assoc::Right,
             Some(TokenType::Ident(a)) if a == "nonassoc" => Assoc::NonAssoc,
-            Some(other) => return Err(ParsingError::Expected(
-                    String::from("op assoc (left, right or nonassoc)"), 
-                    other.to_string())
-            ),
+            Some(other) => {
+                return Err(ParsingError::Expected(
+                    String::from("op assoc (left, right or nonassoc)"),
+                    other.to_string(),
+                ));
+            }
             None => return Err(ParsingError::UnexpectedEof),
-        }; self.next();
-        
-        let prec = match self.peek_type(0)  {
+        };
+        self.next();
+
+        let prec = match self.peek_type(0) {
             Some(TokenType::Number(n)) => *n as f32,
-            Some(other) => return Err(ParsingError::Expected(
-                    String::from("some number"), other.to_string())
-            ),
+            Some(other) => {
+                return Err(ParsingError::Expected(
+                    String::from("some number"),
+                    other.to_string(),
+                ));
+            }
             None => return Err(ParsingError::UnexpectedEof),
-        }; self.next();
+        };
+        self.next();
 
         self.expect(TokenType::LParen)?;
         let op_sig = match self.peek_type(0) {
             //infix
             Some(TokenType::Ident(_)) => match self.peek_type(1) {
-                Some(TokenType::Op(x)) => {OpSig::Infix(x.clone())},
-                Some(other) => return Err(ParsingError::Expected(
-                    String::from("some op declaration, example:\"(a +*+ b)\", \"($! a)\""), 
-                    other.to_string())
-                ),
+                Some(TokenType::Op(x)) => OpSig::Infix(x.clone()),
+                Some(other) => {
+                    return Err(ParsingError::Expected(
+                        String::from("some op declaration, example:\"(a +*+ b)\", \"($! a)\""),
+                        other.to_string(),
+                    ));
+                }
                 None => return Err(ParsingError::UnexpectedEof),
-            }
+            },
             //prefix
             Some(TokenType::Op(x)) => OpSig::Prefix(x.clone()),
-            Some(other) => return Err(ParsingError::Expected(
-                String::from("some op declaration, example:\"(a +*+ b)\", \"($! a)\""), 
-                other.to_string())
-            ),
+            Some(other) => {
+                return Err(ParsingError::Expected(
+                    String::from("some op declaration, example:\"(a +*+ b)\", \"($! a)\""),
+                    other.to_string(),
+                ));
+            }
             None => return Err(ParsingError::UnexpectedEof),
-        }; 
+        };
 
         let res = match op_sig {
             OpSig::Infix(_) => {
@@ -416,10 +451,7 @@ impl Parser {
 
                 let params = Expression::Operation(",".into(), vec![param1, param2]);
 
-                Expression::Lambda(
-                        Box::new(params),
-                        Box::new(Expression::Nil)
-                )
+                Expression::Lambda(Box::new(params), Box::new(Expression::Nil))
             }
             OpSig::Prefix(_) => {
                 self.next();
@@ -432,21 +464,24 @@ impl Parser {
         self.expect(TokenType::RParen)?;
         self.expect(TokenType::Op("=".into()))?;
 
-        let custom_op_table = hashmap!{op_sig.clone() => Operator::new(assoc.clone(), prec)};
-        let body = self.parse_expr_pratt_custom_op_table(
-            custom_op_table,
-            0.
-        )?;
-        self.op_table.insert(op_sig.clone(), Operator{assoc, prec, meaning: Some(body.clone())});
-        
+        let custom_op_table = hashmap! {op_sig.clone() => Operator::new(assoc.clone(), prec)};
+        let body = self.parse_expr_pratt_custom_op_table(custom_op_table, 0.)?;
+        self.op_table.insert(
+            op_sig.clone(),
+            Operator {
+                assoc,
+                prec,
+                meaning: Some(body.clone()),
+            },
+        );
 
         let res = match res {
             Expression::Lambda(param, _) => Expression::Lambda(param, Box::new(body)),
             _ => unreachable!(),
         };
-        Ok(Assign(Expression::OpSigVar(op_sig), vec![], res ))
+        Ok(Assign(Expression::OpSigVar(op_sig), vec![], res))
     }
-        
+
     pub fn parse_term(&mut self) -> ParseResult<Expression> {
         match self.next() {
             Some(Token {
@@ -488,20 +523,26 @@ impl Parser {
                 token_type: TokenType::LParen,
                 ..
             }) => {
-                let expr = self.parse_expr_pratt(0.)?;
+                let old_flag = self.dot_is_separator;
+                self.dot_is_separator = false;
+                let expr = self.parse_expr_pratt(0.);
+                self.dot_is_separator = old_flag;
+                let expr = expr?;
                 match self.next() {
                     Some(Token {
                         token_type: TokenType::RParen,
                         ..
                     }) => Ok(expr),
                     other => Err(ParsingError::Expected(
-                            ")".to_string(),
-                            format!("{:?}", other.map(|t| t.token_type)),
+                        ")".to_string(),
+                        format!("{:?}", other.map(|t| t.token_type)),
                     )),
                 }
             }
 
-            Some(Token { token_type: TokenType::Op(op), ..
+            Some(Token {
+                token_type: TokenType::Op(op),
+                ..
             }) if self.op_table.contains_key(&OpSig::Prefix(op.clone())) => {
                 let (_, bp_r) = self.binding_power(OpSig::Prefix(op.clone()));
                 let rhs = self.parse_expr_pratt(bp_r)?;
@@ -523,24 +564,25 @@ impl Parser {
                         ..
                     }) => Ok(Expression::ListType(Some(Box::new(expr)))),
                     other => Err(ParsingError::Expected(
-                            "]".to_string(),
-                            format!("{:?}", other.map(|t| t.token_type)),
+                        "]".to_string(),
+                        format!("{:?}", other.map(|t| t.token_type)),
                     )),
                 }
             }
 
-
             Some(token) => Err(ParsingError::InvalidExpression(format!(
-                    "Unexpected token on parse_term: {:?}",
-                    token.token_type
+                "Unexpected token on parse_term: {:?}",
+                token.token_type
             ))),
             None => return Err(ParsingError::UnexpectedEof),
         }
     }
 
-    pub fn parse_expr_pratt_custom_op_table(&mut self, op_table: HashMap<OpSig, Operator>, min_bp: f32) 
-        -> ParseResult<Expression>
-    {
+    pub fn parse_expr_pratt_custom_op_table(
+        &mut self,
+        op_table: HashMap<OpSig, Operator>,
+        min_bp: f32,
+    ) -> ParseResult<Expression> {
         let mut my_parser = self.clone();
         my_parser.op_table.extend(op_table);
         let result = my_parser.parse_expr_pratt(min_bp)?;
@@ -552,29 +594,26 @@ impl Parser {
         let mut lhs = self.parse_term()?;
         loop {
             let op = match self.peek_type(0) {
-                None 
-                | Some(TokenType::EndExpr) 
+                None
+                | Some(TokenType::EndExpr)
                 | Some(TokenType::RParen)
                 | Some(TokenType::RBrack)
                 | Some(TokenType::RBrace)
                 | Some(TokenType::Dot)
                 | Some(TokenType::DebugDot)
-                | Some(TokenType::Backslash)
-                => break,
+                | Some(TokenType::Backslash) => break,
 
                 Some(TokenType::Op(op)) if op == "=" => break,
 
                 Some(TokenType::Op(op)) => op.clone(),
-                Some(_) => {
-                    "<APPLY>".to_string()
-                }
+                Some(_) => "<APPLY>".to_string(),
             };
-            
+
             let (bp_l, bp_r) = self.binding_power(OpSig::Infix(op.clone()));
             if bp_l < min_bp {
                 break;
             }
-            
+
             if op == "<APPLY>" {
                 let rhs = self.parse_expr_pratt(bp_r)?;
                 lhs = Expression::Application(Box::new(lhs), Box::new(rhs));
