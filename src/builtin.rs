@@ -47,6 +47,7 @@ pub fn builtin_registry() -> Vec<Box<dyn IBuiltin>> {
         n(ZipEnvBuiltin),
         n(HeadBuiltin),
         n(TailBuiltin),
+        n(ConvertBuiltin),
     ]
 }
 
@@ -141,7 +142,7 @@ impl IBuiltin for HeadBuiltin {
     }
     fn call(&self, arg: Value, _amb: &Ambient) -> EvalResult<Value> {
         match arg {
-            Value::Pair(a, b) => Ok(*a),
+            Value::Pair(a, _) => Ok(*a),
             Value::Nil => Ok(Value::Nil),
             Value::Str(s) => match s.chars().next() {
                 Some(c) => Ok(Value::Str(c.to_string())),
@@ -167,6 +168,44 @@ impl IBuiltin for TailBuiltin {
             Value::Pair(_, b) => Ok(*b),
             Value::Nil => Ok(Value::Nil),
             Value::Str(s) => Ok(Value::Str(s.chars().skip(1).collect())),
+            other => Err(eval_error!(WrongTypes(
+                "tail".into(),
+                PatternType::List(vec![]),
+                other
+            ))),
+        }
+    }
+}
+
+#[derive(Clone)]
+pub struct ConvertBuiltin;
+impl IBuiltin for ConvertBuiltin {
+    fn matches(&self, name: &str) -> bool {
+        name == "convert"
+    }
+
+    fn call(&self, arg: Value, _amb: &Ambient) -> EvalResult<Value> {
+        match arg {
+            Value::Pair(box Value::Str(text), box Value::Frozen(frozen)) => {
+                if let Expression::Var(t) = frozen {
+                    match t.as_slice() {
+                        [s] if s == "number" => {
+                            Ok(Value::Num(mount_num(text.parse().unwrap_or(0.))?))
+                        }
+                        _ => Err(eval_error!(WrongTypes(
+                            "convert".into(),
+                            PatternType::Frozen,
+                            Value::Frozen(Expression::Var(t))
+                        ))),
+                    }
+                } else {
+                    Err(eval_error!(WrongTypes(
+                        "convert".into(),
+                        PatternType::Frozen,
+                        Value::Frozen(frozen)
+                    )))
+                }
+            }
             other => Err(eval_error!(WrongTypes(
                 "tail".into(),
                 PatternType::List(vec![]),
