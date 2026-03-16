@@ -6,8 +6,8 @@ use crate::{
     value::*,
 };
 use im::hashmap;
-use ordered_float::{Float, NotNan};
 use rand::RngExt;
+use std::io::Write;
 mod file;
 mod net;
 
@@ -75,6 +75,7 @@ impl IoResource {
         match arg {
             Value::Str(prefix) => {
                 print!("{prefix}");
+                std::io::stdout().flush().unwrap();
                 let mut buf = String::new();
                 match std::io::stdin().read_line(&mut buf) {
                     // remove the \n at the end
@@ -246,7 +247,9 @@ impl IoResource {
                     let max_i = max.into_inner().floor() as i64;
 
                     if min_i >= max_i {
-                        return Err(eval_error!(GenericError("IO.random: min must be less than max".into())));
+                        return Err(eval_error!(GenericError(
+                            "IO.random: min must be less than max".into()
+                        )));
                     }
 
                     let i = rng.random_range(min_i..max_i);
@@ -257,7 +260,9 @@ impl IoResource {
                 }
 
                 if min >= max {
-                    return Err(eval_error!(GenericError("IO.random: min must be less than max".into())));
+                    return Err(eval_error!(GenericError(
+                        "IO.random: min must be less than max".into()
+                    )));
                 }
 
                 let i = rng.random_range(min.into_inner()..max.into_inner());

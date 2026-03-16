@@ -1,3 +1,22 @@
-_ @{IO} = IO.import_smxlib nil;
+loop_y = \self. \f. {
+    a = f 0;
+}::'(
+    a == nil ? nil, (a, self self f )
+);
 
+loop = loop_y loop_y;
 
+game @{IO} = \_. IO.print (
+    {
+        guess @{IO} = IO.read "Write a number from 0 to 2 > ";
+        num   @{IO} = IO.random {min = 0; max = 2; integer = true;};
+    }::'(
+        guess == num + "" ? 
+            "Correct! " + num, 
+            "Incorrect! " + num
+    )
+);
+
+result @{IO} = IO.import_smxlib 0 
+    : \_. IO.print "< GUESSING GAME >"
+    : \_. loop game;

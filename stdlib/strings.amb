@@ -1,61 +1,75 @@
-_length__y = \self. \(s ~ string). \(acc ~ number). eval (
+_length__y = \self. \s ~string. \acc ~number. eval (
     s == "" ? 'acc,
               '(self self (tail s) (acc + 1))
 );
 
-_take__y = \self. \(n ~ number). \(s ~ string). \(acc ~ string). eval (
-    n == 0   ? 'acc,
-    s == ""  ? 'acc,
-               '(self self (n - 1) (tail s) (acc + (head s)))
+_take__y = \self. \n ~number. \s ~string. eval (
+    n == 0   ? '(""),
+    s == ""  ? '(""),
+               '(head s + self self (n - 1) (tail s) )
 );
 
-_drop__y = \self. \(n ~ number). \(s ~ string). eval (
+_to_list_rev__y = \self. \s ~string. \(acc ~ []). eval (
+    s == "" ? 'acc,
+              '(self self (tail s) (head s, acc))
+);
+
+_drop__y = \self. \n ~number. \s ~string. eval (
     n == 0   ? 's,
     s == ""  ? 's,
                '(self self (n - 1) (tail s))
 );
 
-_to_list__y = \self. \(s ~ string). eval (
+_to_list__y = \self. \s ~string. eval (
     s == "" ? 'nil,
               '(head s, self self (tail s))
 );
 
-_from_list__y = \self. \(l ~ []). \(acc ~ string). eval (
-    l == nil ? 'acc,
-               '(self self (tail l) (acc + (head l)))
+_from_list__y = \self. \l ~[string]. eval (
+    l == nil ? '(""),
+               '(head l + self self (tail l) )
 );
 
-_starts_with__y = \self. \(s ~ string). \(n ~ string). eval (
+_join__y = \self. \sep ~string. \l ~[string]. \first ~bool. eval (
+    l == nil ? '(""),
+    first    ? '(head l + self self (tail l) ),
+               '(sep + head l + self self (tail l))
+);
+
+_starts_with__y = \self. \s ~string. \n ~string. eval (
     n == "" ? 'true,
     s == "" ? 'false,
     head s == head n ? '(self self (tail s) (tail n)), 
                        'false
 );
 
-_contains_slice__y = \self. \(s ~ string). \(n ~ string). eval (
+_contains__y = \self. \s ~string. \n ~string. eval (
     _starts_with__y _starts_with__y s n ? 'true,
-    s == "" ? 'false,
-              '(self self (tail s) n)
+    s != "" ? '(self self (tail s) n),
+    'false
+);
+
+_from_ascii__y = \self. \l ~[number]. 
+{
+    drop = _drop__y _drop__y;
+    seq = " !'#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\]^_`abcdefghijklmnopqrstuvwxyz{|}~";
+    offset = 32;
+    cur = (head l) - offset;
+}::(
+    l == nil ? '(""),
+    '( (seq : drop cur : head) + (self self (tail l)) )
 );
 
 strings = {
-    length = \(s ~ string). _length__y _length__y s 0;
-    take = \(n ~ number). \(s ~ string). _take__y _take__y n s "";
-    drop = \(n ~ number). \(s ~ string). _drop__y _drop__y n s;
-    from_list = \(l ~ []). _from_list__y _from_list__y l "";
-    
+    length = \s ~string. _length__y _length__y s 0;
+    take = _take__y _take__y;
+    drop = _drop__y _drop__y;
+    from_list = _from_list__y _from_list__y;
     to_list = _to_list__y _to_list__y;
-    
-    reverse = \(s ~ string). 
-        {
-            _to_list_rev__y = \self. \(s ~ string). \(acc ~ []). eval (
-                s == "" ? 'acc,
-                          '(self self (tail s) (head s, acc))
-            );
-        }::'(
-            _to_list_rev__y _to_list_rev__y s nil : from_list
-        );
-    contains = \(s ~ string). \(n ~ string). _contains_slice__y _contains_slice__y s n;
-    starts_with = \(s ~ string). \(n ~ string). _starts_with__y _starts_with__y s n;
-    ends_with = \(s ~ string). \(n ~ string). _starts_with__y _starts_with__y (reverse s) (reverse n);
+    join = _join__y _join__y;
+    reverse = \s ~string. _to_list_rev__y _to_list_rev__y s nil : from_list;
+    contains = _contains__y _contains__y;
+    starts_with = _starts_with__y _starts_with__y;
+    ends_with = \s ~string. \n ~string. _starts_with__y _starts_with__y (reverse s) (reverse n);
+    from_ascii = _from_ascii__y _from_ascii__y;
 };
