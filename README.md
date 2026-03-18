@@ -1,6 +1,6 @@
 # smx
 ## What it is:
-smx is a functional programming language with first-class environments. 
+smx is a functional programming language with first-class environments and an operator-centric model.
 
 I am using the code from [simple_math](https://github.com/CoininDev/simple_math), a simple calculator interpreter, as a base.
 
@@ -124,6 +124,9 @@ It supports lists.
 #### head and tail
 Self explanatory.
 
+
+#### convert
+Convert different types of values.
 ---
 
 ## Environments
@@ -150,7 +153,7 @@ result = env.a;
 -- result: 1
 ```
 
-Access environment members with the `.` operator.
+Access environment members using `.`.
 
 ---
 
@@ -161,7 +164,7 @@ Variables and function parameters support **pattern matching** and **type annota
 ### Destructuring
 
 ```smx
-(a, b ~ number) = some_list;
+a ~ number, b ~ number = 1, 2;
 ```
 
 ### Named Environment Destructuring
@@ -173,7 +176,7 @@ env = {num1, num2 = 1, 2;};
 ### Typed Function Parameters
 
 ```smx
-func = (a ~ string, b ~ bool). b ? a, "";
+func = \a ~string, b ~bool. b ? a, "";
 ```
 
 ### Typed List Variables
@@ -257,9 +260,9 @@ _ @{IO} = IO.import {
 | Extension | Purpose |
 |-----------|---------|
 | `.smx` | Executable file — must have a `result` entry point |
-| `.amb` | Ambient file — an environment meant to be imported, no entry point |
+| `.amx` | Ambient file — an environment meant to be imported, no entry point |
 
-An **Ambient** (`.amb`) is the combination of an environment (variable bindings), resources, and custom operators — a self-contained module for reuse.
+An **Ambient** (`.amx`) is the combination of an environment (variable bindings), resources, and custom operators — a self-contained module for reuse.
 
 ---
 
@@ -284,6 +287,3 @@ An **Ambient** (`.amb`) is the combination of an environment (variable bindings)
 | Type annotation | `(x ~ type)` |
 | List type | `~ [t1 \| t2]` |
 
----
-
-*SMX was built as a learning project exploring language design — but its operator-centric model and ambient/resource system make it a strong foundation for embedded DSLs.*
