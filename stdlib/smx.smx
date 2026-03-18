@@ -6,7 +6,8 @@ _smx_path @{IO} = IO.run "echo $SMXLIB_PATH": \x. x.stdout;
 
 
 _result @{IO} = 
-     _import (_smx_path + "/test.amb") 
-  :> _import (_smx_path + "/matchop.amb")
-  :> _import (_smx_path + "/strings.amb")
-  :> _import (_smx_path + "/lists.amb");
+     _import (_smx_path + "/test.amx") 
+  :> _import (_smx_path + "/matchop.amx")
+  :> _import (_smx_path + "/strings.amx")
+  :> _import (_smx_path + "/lists.amx")
+  :> _import (_smx_path + "/logic.amx");

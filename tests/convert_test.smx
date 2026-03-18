@@ -1,0 +1,27 @@
+test_num_from_str = convert ("123", 'number) == 123;
+test_num_from_bool = convert (true, 'number) == 1;
+test_num_from_num = convert (456, 'number) == 456;
+
+test_str_from_num = convert (123, 'string) == "123";
+test_str_from_bool = convert (true, 'string) == "true";
+test_str_from_str = convert ("abc", 'string) == "abc";
+
+test_bool_from_num_true = convert (1, 'bool) == true;
+test_bool_from_num_false = convert (0, 'bool) == false;
+test_bool_from_str_true = convert ("true", 'bool) == true;
+test_bool_from_str_false = convert ("false", 'bool) == false;
+
+my_env = { a = 1; b = 2; };
+my_list = convert (my_env, 'list);
+// Note: order might vary, but we expect two pairs
+test_env_to_list_len = (tail my_list != nil);
+
+new_env = convert ( (("x", 10), (("y", 20), nil)), 'env);
+test_list_to_env_x = has (new_env, "x");
+test_list_to_env_y = has (new_env, "y");
+
+result = test_num_from_str && test_num_from_bool && test_num_from_num && 
+         test_str_from_num && test_str_from_bool && test_str_from_str &&
+         test_bool_from_num_true && test_bool_from_num_false && 
+         test_bool_from_str_true && test_bool_from_str_false &&
+         test_env_to_list_len && test_list_to_env_x && test_list_to_env_y;

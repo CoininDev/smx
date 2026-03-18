@@ -1,4 +1,4 @@
-loop_y = \self. \f. {
+loop_y = \self. \f~fn. {
     a = f 0;
 }::'(
     a == nil ? nil, (a, self self f )

@@ -1,0 +1,6 @@
+_repeat_y = \self. \n ~number. \f ~fn. \arg. eval (
+    n == 0 ? 'nil,
+    '(self self (n - 1) f arg)
+);
+
+repeat = _repeat_y _repeat_y;

@@ -1,2 +1,0 @@
-say_hello @{IO} = \n. "hello " + n + "!": IO.print;
-cu = 1;

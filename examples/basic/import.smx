@@ -1,0 +1,4 @@
+resource Library @{IO} = IO.import_as_env "lib/example.smx"; 
+resource Library2 @{IO} = IO.import "lib/example.smx";
+
+_ @{IO} = import_smxlib "discarted parameter";

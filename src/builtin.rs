@@ -186,28 +186,76 @@ impl IBuiltin for ConvertBuiltin {
 
     fn call(&self, arg: Value, _amb: &Ambient) -> EvalResult<Value> {
         match arg {
-            Value::Pair(box Value::Str(text), box Value::Frozen(frozen)) => {
-                if let Expression::Var(t) = frozen {
-                    match t.as_slice() {
-                        [s] if s == "number" => {
-                            Ok(Value::Num(mount_num(text.parse().unwrap_or(0.))?))
-                        }
-                        _ => Err(eval_error!(WrongTypes(
+            Value::Pair(val, box Value::Frozen(Expression::Var(t))) => {
+                match t.as_slice() {
+                    [s] if s == "number" => match *val {
+                        Value::Str(s) => Ok(Value::Num(mount_num(
+                            s.parse().map_err(|_| {
+                                eval_error!(WrongTypes("convert".into(), PatternType::Number, Value::Str(s)))
+                            })?,
+                        )?)),
+                        Value::Bool(b) => Ok(Value::Num(mount_num(if b { 1. } else { 0. })?)),
+                        Value::Num(n) => Ok(Value::Num(n)),
+                        other => Err(eval_error!(WrongTypes(
                             "convert".into(),
-                            PatternType::Frozen,
-                            Value::Frozen(Expression::Var(t))
+                            PatternType::Number,
+                            other
                         ))),
+                    },
+                    [s] if s == "string" => match *val {
+                        Value::Str(s) => Ok(Value::Str(s)),
+                        other => Ok(Value::Str(other.to_string())),
+                    },
+                    [s] if s == "bool" => match *val {
+                        Value::Num(n) => Ok(Value::Bool(*n != 0.)),
+                        Value::Str(s) if s == "true" => Ok(Value::Bool(true)),
+                        Value::Str(s) if s == "false" => Ok(Value::Bool(false)),
+                        Value::Bool(b) => Ok(Value::Bool(b)),
+                        other => Err(eval_error!(WrongTypes(
+                            "convert".into(),
+                            PatternType::Bool,
+                            other
+                        ))),
+                    },
+                    [s] if s == "list" => match *val {
+                        Value::Environment(env) => {
+                            let mut res = Value::Nil;
+                            for (k, v) in env {
+                                res = Value::Pair(
+                                    Box::new(Value::Pair(Box::new(Value::Str(k)), Box::new(v))),
+                                    Box::new(res),
+                                );
+                            }
+                            Ok(res)
+                        }
+                        other => Err(eval_error!(WrongTypes(
+                            "convert".into(),
+                            PatternType::List(vec![]),
+                            other
+                        ))),
+                    },
+                    [s] if s == "env" => {
+                        let mut env = hashmap! {};
+                        let mut current = &*val;
+                        while let Value::Pair(car, cdr) = current {
+                            if let Value::Pair(k, v) = &**car {
+                                if let Value::Str(key) = &**k {
+                                    env.insert(key.clone(), (**v).clone());
+                                }
+                            }
+                            current = &**cdr;
+                        }
+                        Ok(Value::Environment(env))
                     }
-                } else {
-                    Err(eval_error!(WrongTypes(
+                    _ => Err(eval_error!(WrongTypes(
                         "convert".into(),
                         PatternType::Frozen,
-                        Value::Frozen(frozen)
-                    )))
+                        Value::Frozen(Expression::Var(t))
+                    ))),
                 }
             }
             other => Err(eval_error!(WrongTypes(
-                "tail".into(),
+                "convert".into(),
                 PatternType::List(vec![]),
                 other
             ))),

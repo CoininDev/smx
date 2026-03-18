@@ -1,7 +1,7 @@
 _importation @{IO} = IO.import_smxlib nil;
 
 result @{IO} = 
-  (3) ?> (
+  (3, "hi", 20) ?> (
   #('(a ~ string), '(b ~ number))     -> '(b + 42),
   #('(a ~ number), 'b, '(c ~ number)) -> '(IO.print b: \_. a + b),
   #'(x ~ number)                      -> '(x + 14),
