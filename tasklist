@@ -1,10 +1,8 @@
 - smx_lib/
-  - strings
   - math
   - collections
   - web
   - gfx
   - sfx
-  - lists
 
 - enhance error messages

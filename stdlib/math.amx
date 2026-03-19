@@ -1,0 +1,30 @@
+// Constants
+pi = 3.141592653589793;
+e = 2.718281828459045;
+tau = 6.283185307179586;
+phi = 1.618033988749895;
+
+// Basic Functions
+abs = \x. x < 0 ? -x, x;
+signum = \x. 
+    x > 0 ? 1, 
+    x < 0 ? -1, 
+    0
+;
+
+max = \x. \y. x > y ? x, y;
+min = \x. \y. x < y ? x, y;
+clamp = \x. \low. \high. max x low : min high;
+
+// Integer Parts
+floor = \x. x % 1 < 0 ? (x - (x % 1) - 1), (x - (x % 1));
+ceil = \x.  x % 1 > 0 ? (x - (x % 1) + 1), (x - (x % 1));
+trunc = \x. x - (x % 1);
+round = \x. floor (x + 0.5);
+
+// Power and Roots
+sqrt = \x. x ** 0.5;
+cbrt = \x. x ** (1/3);
+
+// Geometric
+hypot = \x. \y. sqrt (x**2 + y**2);

@@ -454,6 +454,32 @@ pub fn eval_operation(op: String, exprs: Vec<Expression>, amb: &mut Ambient)
             },
             _ => Err(eval_error!(InvalidSizeOfArgsFor("/".to_string()))),
         },
+        "**" => match exprs.as_slice() {
+            [left, right] => {
+                let l = eval(left)?;
+                let r = eval(right)?;
+                match (&l, &r) {
+                    (Value::Num(a), Value::Num(b)) => Ok(Value::Num(mount_num(a.powf(**b))?)),
+                    _ => Err(eval_error!(WrongTypes("**".into(), 
+                            PatternType::Number,
+                            Value::Pair(Box::new(l), Box::new(r))))),
+                }
+            }
+            _ => Err(eval_error!(InvalidSizeOfArgsFor("**".to_string()))),
+        },
+        "%" => match exprs.as_slice() {
+            [left, right] => {
+                let l = eval(left)?;
+                let r = eval(right)?;
+                match (&l, &r) {
+                    (Value::Num(a), Value::Num(b)) => Ok(Value::Num(mount_num(**a % **b)?)),
+                    _ => Err(eval_error!(WrongTypes("%".into(), 
+                            PatternType::Number,
+                            Value::Pair(Box::new(l), Box::new(r))))),
+                }
+            }
+            _ => Err(eval_error!(InvalidSizeOfArgsFor("%".to_string()))),
+        },
         "," => match exprs.as_slice() {
             [left, right] => Ok(Value::Pair(Box::new(eval(left)?), Box::new(eval(right)?))),
             _ => Err(eval_error!(InvalidSizeOfArgsFor(",".to_string()))),

@@ -127,6 +127,13 @@ Self explanatory.
 
 #### convert
 Convert different types of values.
+```smx
+convert (1, 'number); // 1
+convert (1.0, 'string); // "1.0"
+convert ("1", 'number); // 1
+convert (1, 'bool); // true
+convert ("hello", 'number); // {nan = true;}
+```
 ---
 
 ## Environments
