@@ -5,7 +5,7 @@
 
 use crate::{io::*};
 use std::{rc::Rc, cell::RefCell};
-use std::net::TcpStream;
+use std::net::{TcpStream};
 use std::io::Write;
 
 macro_rules! eval_error {
@@ -73,8 +73,10 @@ impl NetIoObj {
     fn send (&self, arg: Value, amb: &mut Ambient) -> EvalResult<Value> {
         match arg {
             Value::Pair(box Value::Native(native_index), box Value::Str(message)) => {
-                let a0 = amb.natives.get(native_index).unwrap();
-                let a1 = a0.clone().downcast::<Rc<RefCell<NetNativeObj>>>().unwrap();
+                let a0 = amb.natives.get(native_index)
+                    .ok_or(eval_error!(GenericError("Couldn't get the NATIVE by its id.".into())))?;
+                let a1: Rc<RefCell<NetNativeObj>> = a0.clone().downcast::<RefCell<NetNativeObj>>()
+                    .map_err(|_| eval_error!(GenericError("This native doesn't have NetNativeObj type.".into())))?;
                 let mut a2 = a1.borrow_mut();
                 match &mut *a2 {
                     NetNativeObj::Tcp {val: v, receive: _} => {
@@ -92,11 +94,17 @@ impl NetIoObj {
     fn run(&self, arg: Value, amb: &mut Ambient) -> EvalResult<Value> {
         match arg {
             Value::Native(native_index) => {
-                let a0 = amb.natives.get(native_index).unwrap();
-                let a1 = a0.clone().downcast::<Rc<RefCell<NetNativeObj>>>().unwrap();
+                let a0 = amb.natives.get(native_index)
+                    .ok_or(eval_error!(GenericError("Couldn't get the NATIVE by its id.".into())))?;
+                let a1: Rc<RefCell<NetNativeObj>> = a0.clone().downcast::<RefCell<NetNativeObj>>()
+                    .map_err(|_| eval_error!(GenericError("This native doesn't have NetNativeObj type.".into())))?;
                 let mut a2 = a1.borrow_mut();
                 loop {
-                    
+                    match &mut *a2 {
+                        NetNativeObj::Tcp {val: v, receive: r} => {
+                            for e
+                        }
+                    }
                 }
             }
             _ => Err(eval_error!(GenericError(String::from("pinto"))))

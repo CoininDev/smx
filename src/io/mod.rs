@@ -8,6 +8,7 @@ use crate::{
 use im::hashmap;
 use rand::RngExt;
 use std::io::Write;
+use std::time::Instant;
 mod file;
 mod net;
 
@@ -34,6 +35,7 @@ impl IoResource {
             "import_smxlib" => self.import_smxlib(value, amb),
             "run" => self.run(value),
             "random" => self.random(value),
+            "time" => self.time(value, amb),
             _ => Err(eval_error!(VariableDoesNotExists(function))),
         }
     }
@@ -272,6 +274,25 @@ impl IoResource {
                 }
             }
             _ => error(),
+        }
+    }
+
+    pub fn time(&self, arg: Value, amb: &mut Ambient) -> EvalResult<Value> {
+        match arg {
+            Value::Frozen(exp) => {
+                let start = Instant::now();
+                let res = eval_expr(exp, amb)?;
+                let time = start.elapsed();
+                Ok(Value::Environment(hashmap!{
+                    "secs".into() => Value::Num(mount_num(time.as_secs_f64()).unwrap()),
+                    "result".into() => res,
+                }))
+            }
+            other => Err(eval_error!(WrongTypes(
+                "IO.time".into(),
+                PatternType::Frozen,
+                other
+            )))
         }
     }
 }
