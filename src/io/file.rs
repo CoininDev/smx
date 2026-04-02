@@ -2,6 +2,7 @@ use std::fs::File;
 use std::io::prelude::*;
 use crate::io::*;
 use std::env;
+use shellexpand::full;
 
 macro_rules! eval_error {
     ($err: expr) => {
@@ -41,11 +42,11 @@ impl FileIoObj {
         match value {
             Value::Environment(env) => {
                 let name = match env.get("name") {
-                    Some(Value::Str(x)) => x,
+                    Some(Value::Str(x)) => full(&x).expect("Could not expand file terms.").into_owned(),
                     _ => return error(),
                 };
 
-                let mut file = match File::create(name) {
+                let mut file = match File::create(&name) {
                     Ok(a) => a,
                     Err(e) => return Ok(Value::Environment(
                         hashmap!{"file_write_error".into() => Value::Str(e.to_string())}
@@ -85,7 +86,8 @@ impl FileIoObj {
         }
         match value {
             Value::Str(name) => {
-                let mut file = match File::open(name) {
+                let exp = full(&name).expect("Could not expand file terms.").into_owned();
+                let mut file = match File::open(exp) {
                     Ok(a) => a,
                     Err(e) => return Ok(Value::Environment(
                         hashmap!{"file_read_error".into() => Value::Str(e.to_string())}
@@ -107,16 +109,19 @@ impl FileIoObj {
 
     fn mkdir(&self, arg: Value) -> EvalResult<Value> {
         match arg {
-            Value::Str(name) => match std::fs::create_dir(name.clone()) {
-                Ok(_) => Ok(Value::Environment(
-                    hashmap!{
-                        "mkdir_success".into() => Value::Bool(true),
-                        "dir_name".into() => Value::Str(name),
-                    }
-                )),
-                Err(e) => Ok(Value::Environment(
-                    hashmap!{"mkdir_error".into() => Value::Str(e.to_string())}
-                )),        
+            Value::Str(name) => {
+                let expanded = full(&name).expect("Could not expand file terms.").into_owned();
+                match std::fs::create_dir(expanded.clone()) {
+                    Ok(_) => Ok(Value::Environment(
+                        hashmap!{
+                            "mkdir_success".into() => Value::Bool(true),
+                            "dir_name".into() => Value::Str(expanded),
+                        }
+                    )),
+                    Err(e) => Ok(Value::Environment(
+                        hashmap!{"mkdir_error".into() => Value::Str(e.to_string())}
+                    )),        
+                }
             }
             other => Err(eval_error!(WrongTypes("IO.file.mkdir".into(), PatternType::String, other))),
         }
@@ -124,17 +129,19 @@ impl FileIoObj {
 
     fn rmdir(&self, arg: Value) -> EvalResult<Value> {
         match arg {
-            Value::Str(name) => 
-            match std::fs::remove_dir(name.clone()) {
-                Ok(_) => Ok(Value::Environment(
-                    hashmap!{
-                        "rmdir_success".into() => Value::Bool(true),
-                        "dir_name".into() => Value::Str(name),
-                    }
-                )),
-                Err(e) => Ok(Value::Environment(
-                    hashmap!{"rmdir_error".into() => Value::Str(e.to_string())}
-                )),
+            Value::Str(name) => {
+                let expanded = full(&name).expect("Could not expand file terms.").into_owned();
+                match std::fs::remove_dir(expanded.clone()) {
+                    Ok(_) => Ok(Value::Environment(
+                        hashmap!{
+                            "rmdir_success".into() => Value::Bool(true),
+                            "dir_name".into() => Value::Str(expanded),
+                        }
+                    )),
+                    Err(e) => Ok(Value::Environment(
+                        hashmap!{"rmdir_error".into() => Value::Str(e.to_string())}
+                    )),
+                }
             }
             other => Err(eval_error!(WrongTypes("IO.file.rmdir".into(), PatternType::String, other))),
         }
@@ -142,16 +149,19 @@ impl FileIoObj {
 
     fn delete(&self, arg: Value) -> EvalResult<Value> {
         match arg {
-            Value::Str(name) => match std::fs::remove_file(name.clone()) {
-                Ok(_) => Ok(Value::Environment(
-                    hashmap!{
-                        "delete_success".into() => Value::Bool(true),
-                        "file_name".into() => Value::Str(name),
-                    }
-                )),
-                Err(e) => Ok(Value::Environment(
-                    hashmap!{"delete_error".into() => Value::Str(e.to_string())}
-                )),
+            Value::Str(name) => {
+                let expanded = full(&name).expect("Could not expand file terms.").into_owned();
+                match std::fs::remove_file(expanded.clone()) {
+                    Ok(_) => Ok(Value::Environment(
+                        hashmap!{
+                            "delete_success".into() => Value::Bool(true),
+                            "file_name".into() => Value::Str(expanded),
+                        }
+                    )),
+                    Err(e) => Ok(Value::Environment(
+                        hashmap!{"delete_error".into() => Value::Str(e.to_string())}
+                    )),
+                }
             }
             other => Err(eval_error!(WrongTypes("IO.file.delete".into(), PatternType::String, other))),
         }

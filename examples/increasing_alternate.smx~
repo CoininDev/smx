@@ -1,0 +1,9 @@
+increasing_alternate @{IO} = IO.import_smxlib nil :\_.
+  \n. \a. \u.
+    lists.elaborate n a (\l. l==a?u,a)
+  : lists.enumerate
+  : lists.map (\v,i. lists.elaborate (i + 1) v (\_.v) : strings.from_list)
+  : strings.from_list
+;
+
+result = incremental_next_letter

@@ -1,11 +1,11 @@
 use rustyline::{DefaultEditor, error::ReadlineError};
-
+use im::hashmap;
 use crate::{
     ast::Parser,
     eval::*,
     lexer::{Lexer, Token},
     error::*,
-    value::Ambient,
+    value::{Ambient, Value},
 };
 
 pub struct REPL {
@@ -15,9 +15,13 @@ pub struct REPL {
 
 impl REPL {
     pub fn new() -> Self {
+        let mut ambient = Ambient::default();
+        ambient.vars = ambient.vars.union( hashmap!{
+            "IO".into() => Value::Builtin("IO".into())
+        });
         Self {
             rl: DefaultEditor::new().unwrap(),
-            ambient: Ambient::default(),
+            ambient,
         }
     }
 

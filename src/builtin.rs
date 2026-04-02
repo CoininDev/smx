@@ -1,6 +1,13 @@
 use im::hashmap;
 
-use crate::{ast::*, error::EvalErrorType::*, error::*, eval::*, value::*};
+use crate::{
+    ast::*,
+    error::EvalErrorType::*,
+    error::*,
+    eval::*,
+    value::*,
+    io::util_eval_expr_str,
+};
 
 macro_rules! eval_error {
     ($err: expr) => {
@@ -83,6 +90,8 @@ impl IBuiltin for EvalBuiltin {
     fn call(&self, arg: Value, amb: &Ambient) -> EvalResult<Value> {
         match arg {
             Value::Frozen(frozen) => eval_expr(frozen, &mut amb.clone()),
+            Value::Str(text) => util_eval_expr_str(text.as_str(), amb)
+                .map_err(|e| eval_error!(GenericError(e.to_string()))),
             other => Err(eval_error!(WrongTypes(
                 "eval".into(),
                 PatternType::Frozen,

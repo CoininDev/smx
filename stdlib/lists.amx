@@ -47,25 +47,30 @@ _unzip__y = \self. \(l ~ []). eval (
     )
 );
 
-_reverse__y = \self. \(l ~ []). \(acc ~ []). eval (
-    l == nil ? 'acc,
-               '(self self (tail l) (head l, acc))
+_enumerate__y = \self. \acc ~ number. \l ~ []. eval(
+    l == nil ? 'nil,
+    '( (head l, acc), self self (acc + 1) (tail l) )
 );
 
-_chunks_of__y = \self. \(n ~ number). \(l ~ []). 
+_reverse__y = \self. \l ~ []. \acc ~ []. eval (
+    l == nil ? 'acc,
+    '(self self (tail l) (head l, acc))
+);
+
+_chunks_of__y = \self. \n ~ number. \l ~ []. 
 {
     take = _take__y _take__y;
     drop = \(n ~ number). \(l ~ []). _drop__y _drop__y n l;
 }::'(
 eval (
     l == nil ? 'nil,
-               '(take n l, self self n (drop n l))
+    '(take n l, self self n (drop n l))
 ));
 
 _unnilize__y = \self. \(l ~ []). eval (
     l == nil      ? 'nil,
     tail l == nil ? '(head l),
-                    '(head l, self self (tail l))
+    '(head l, self self (tail l))
 );
 
 _nilize__y = \self. \l. eval (
@@ -100,4 +105,5 @@ lists = {
     unzip = _unzip__y _unzip__y;
     chunks_of = _chunks_of__y _chunks_of__y;
     elaborate = _elaborate__y _elaborate__y;
+    enumerate = _enumerate__y _enumerate__y 0;
 };

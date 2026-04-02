@@ -1,5 +1,5 @@
-import @ { IO } = \x. (IO.import x);
-print @ { IO } = \x. (IO.print x);
+import @{IO} = \x. (IO.import x);
+print @{IO} = \x. (IO.print x);
 _ = print "Importing math...";
 _ = import { file = "stdlib/math.amx"; skip_underscored = false; };
 _ = print "Math imported.";

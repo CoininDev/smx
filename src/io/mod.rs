@@ -5,10 +5,14 @@ use crate::{
     lexer::*,
     value::*,
 };
+
 use im::hashmap;
 use rand::RngExt;
 use std::io::Write;
 use std::time::Instant;
+use std::time::Duration;
+use std::thread::sleep;
+
 mod file;
 mod net;
 
@@ -20,7 +24,7 @@ macro_rules! eval_error {
 
 pub trait IoObject {
     fn redirect(&self, function: Vec<String>, value: Value, amb: &mut Ambient)
-    -> EvalResult<Value>;
+-> EvalResult<Value>;
     fn name(&self) -> &str;
 }
 
@@ -36,6 +40,7 @@ impl IoResource {
             "run" => self.run(value),
             "random" => self.random(value),
             "time" => self.time(value, amb),
+            "wait" => self.wait(value),
             _ => Err(eval_error!(VariableDoesNotExists(function))),
         }
     }
@@ -125,10 +130,10 @@ impl IoResource {
         fn env_error() -> EvalResult<Value> {
             Err(eval_error!(GenericError(format!(
                 "
-                expected env for IO.import with:
-                file ~ string *
-                skip_underscored ~ bool
-            "
+            expected env for IO.import with:
+            file ~ string *
+            skip_underscored ~ bool
+        "
             ))))
         }
 
@@ -217,12 +222,12 @@ impl IoResource {
     pub fn random(&self, arg: Value) -> EvalResult<Value> {
         fn error() -> EvalResult<Value> {
             Err(eval_error!(GenericError(String::from(
-                r"
-            expected for IO.random env with:
-                min ~ number
-                max ~ number 
-                integer ~ bool
-            "
+            r"
+        expected for IO.random env with:
+            min ~ number
+            max ~ number 
+            integer ~ bool
+        "
             ))))
         }
 
@@ -295,6 +300,23 @@ impl IoResource {
             )))
         }
     }
+
+    pub fn wait(&self, arg: Value) -> EvalResult<Value> {
+        match arg {
+            Value::Num(n) => {
+                let time = n.into_inner();
+                sleep(Duration::from_secs_f64(time));
+                return Ok(Value::Environment(
+                    hashmap!{"ok".into() => Value::Bool(true)
+                    }));
+            }
+            other => Err(eval_error!(WrongTypes(
+                "IO.wait".into(),
+                PatternType::Number,
+                other
+            )))
+        }
+    }
 }
 
 pub fn util_eval_program_ambient_str(input: &str) -> Result<Ambient, String> {
@@ -324,5 +346,5 @@ pub fn util_eval_expr_str(input: &str, amb: &Ambient) -> Result<Value, String> {
             natives: vec![],
         },
     )
-    .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())
 }

@@ -102,8 +102,9 @@ impl NetIoObj {
                 loop {
                     match &mut *a2 {
                         NetNativeObj::Tcp {val: v, receive: r} => {
-                            for e
+                            println!("WORK IN PROGRESS;");
                         }
+                        NetNativeObj::Test => print!("WORK IN PROGRESS;"),
                     }
                 }
             }
