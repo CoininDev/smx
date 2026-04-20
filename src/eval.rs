@@ -353,6 +353,12 @@ pub fn eval_pattern(input: Expression, amb: &Ambient) -> EvalResult<Pattern> {
             }
             _ => Err(eval_error!(PatternError(format!("Invalid typed name: {:?}", input))))
         },
+        Expression::Operation(ref op, ref exprs) if op == "#" => {
+            match eval_operation(op.clone(), exprs.clone(), &mut amb.clone())? {
+                Value::Pattern(p) => Ok(p),
+                other => Ok(Pattern::Value(Box::new(other))),
+            }
+        }
 
         Expression::Var(v) if matches!(v.as_slice(), [x] if x == "_") => Ok(Pattern::Wildcard),
         Expression::Var(v) if v.len() == 1 => Ok(Pattern::Name(v[0].clone())),
@@ -361,6 +367,36 @@ pub fn eval_pattern(input: Expression, amb: &Ambient) -> EvalResult<Pattern> {
         //used in custom operators definition only
         Expression::OpSigVar(OpSig::Prefix(x)) |
         Expression::OpSigVar(OpSig::Infix(x))  => Ok(Pattern::Name(format!("<custom_operator>{x}"))),
+
+        Expression::Environment(body) => {
+            let mut schema = vec![];
+            for Assign(id, _, expr) in body {
+                match id {
+                    Expression::Var(v) if v.len() == 1 => {
+                        let name = v[0].clone();
+                        let pat = if let Expression::Nil = expr {
+                            Pattern::Name(name.clone())
+                        } else {
+                            eval_pattern(expr, amb)?
+                        };
+                        schema.push((name, pat));
+                    }
+                    Expression::Operation(ref op, ref xs) if op == "~" => {
+                        match xs.as_slice() {
+                            [Expression::Var(v), _] if v.len() == 1 => {
+                                let name = v[0].clone();
+                                let pat = eval_pattern(id, amb)?;
+                                schema.push((name, pat));
+                            }
+                            _ => {}
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            Ok(Pattern::Environment(schema))
+        }
+
         other => Ok(Pattern::Value(Box::new(eval_expr(other, &mut Ambient::default())?))),
     }
 }
@@ -462,6 +498,18 @@ pub fn eval_pattern_pair(pat: Pattern, val: Value) -> Result<Environment, EvalEr
             
             // Case: _ = value
             (Pattern::Wildcard, _) => Ok(acc),
+            
+            (Pattern::Environment(schema), Value::Environment(env)) => {
+                let mut current_acc = acc;
+                for (name, pat) in schema {
+                    if let Some(val) = env.get(&name) {
+                        current_acc = rec(pat, val.clone(), current_acc)?;
+                    } else {
+                        return Err(format!("Environment missing required field: {}", name));
+                    }
+                }
+                Ok(current_acc)
+            },
             
             (a, b) => Err(format!("Pattern match failed: {} does not match {}", a, b)),
         }

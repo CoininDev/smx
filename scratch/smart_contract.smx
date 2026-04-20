@@ -1,15 +1,18 @@
 // needed for testing only
 resource R = nil;
 resource W = nil;
+resource Ev = {register = \x.x;};
 
 contract = { 
     name = "zombieFactory"; 
     private = { 
+        event_NewZombie @{Ev} = Ev.register #'{zombieId; name ~ string; dna ~ u256;};
         dnaDigits ~ number = 16; 
         dnaModulus ~ number = 10 ** dnaDigits; 
         
-        createZombie @{R, W} = \name ~ string. \dna ~ u256. 
-            W.zombies (lists.push (R.zombies) {name = name; dna = dna;}); 
+        createZombie @{R, W, Ev} = \name ~ string. \dna ~ u256. 
+            W.zombies (lists.push (R.zombies) {name = name; dna = dna;})
+        :   Ev.emit 'NewZombie {zombieId = R.zombies:len; name = name; dna = dna;}; 
         
         generateRandomDna @{R} = \str ~ string. str 
         :   hash.keccak256 

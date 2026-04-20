@@ -104,6 +104,7 @@ pub enum Pattern {
     TypedName(String, PatternType),
     Value(Box<Value>),
     Pair(Box<Pattern>, Box<Pattern>),
+    Environment(Vec<(String, Pattern)>),
     Wildcard,
 }
 
@@ -162,6 +163,14 @@ impl std::fmt::Display for Pattern {
             Self::TypedName(x, t) => write!(f, "{x} ~ {t}"),
             Self::Value(x)        => write!(f, "{}", *x),
             Self::Pair(a, b)      => write!(f, "({}, {})", *a, *b),
+            Self::Environment(e)  => {
+                write!(f, "{{")?;
+                for (i, (k, p)) in e.iter().enumerate() {
+                    if i > 0 { write!(f, "; ")?; }
+                    write!(f, "{} = {}", k, p)?;
+                }
+                write!(f, "}}")
+            }
             Self::Wildcard        => write!(f, "_"),
         }
     }

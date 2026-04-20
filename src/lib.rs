@@ -26,6 +26,19 @@ pub fn eval(code: &str, amb: &mut Ambient) -> Result<Value, String> {
         .map_err(|e| format!("Evaluation Error: {e:#?}"))
 }
 
+pub fn eval_file(path: &str, amb: &mut Ambient) -> Result<Value, String> {
+    let content = std::fs::read_to_string(path)
+        .map_err(|e| format!("Error reading file {path}: {e}"))?;
+
+    let tk = tokenize(&content);
+    let mut parser = Parser::new(tk);
+    let expr = parser.parse_expr_pratt(0.0)
+        .map_err(|e| format!("Parser error: {e}"))?;
+
+    eval_expr(expr, amb)
+        .map_err(|e| format!("Evaluation Error: {e:#?}"))
+}
+
 pub fn run_file(path: &str) -> Result<Value, String> {
     let content = std::fs::read_to_string(path)
         .map_err(|e| format!("Error reading file {path}: {e}"))?;

@@ -37,6 +37,34 @@ pub fn builtin_pattern_from_value(v: Value, amb: &Ambient) -> Value {
                 ),
                 _ => Pattern::Wildcard,
             },
+            Value::Frozen(Expression::Environment(body)) => {
+                let mut schema = vec![];
+                for Assign(id, _, expr) in body {
+                    match id {
+                        Expression::Var(v) if v.len() == 1 => {
+                            let name = v[0].clone();
+                            let pat = if let Expression::Nil = expr {
+                                Pattern::Name(name.clone())
+                            } else {
+                                rec(Value::Frozen(expr), amb)
+                            };
+                            schema.push((name, pat));
+                        }
+                        Expression::Operation(ref op, ref xs) if op == "~" => {
+                            match xs.as_slice() {
+                                [Expression::Var(v), _] if v.len() == 1 => {
+                                    let name = v[0].clone();
+                                    let pat = rec(Value::Frozen(id), amb);
+                                    schema.push((name, pat));
+                                }
+                                _ => {}
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+                Pattern::Environment(schema)
+            }
             other => Pattern::Value(Box::new(other)),
         }
     }
