@@ -1,19 +1,8 @@
-#![feature(box_patterns)]
-use crate::eval::eval_program;
-use crate::repl::REPL;
-use crate::{
-    ast::Parser,
-    lexer::{Lexer, Token},
-};
+use smx::eval::eval_program;
+use smx::repl::REPL;
+use smx::ast::Parser;
+use smx::tokenize;
 use std::{env, fs};
-mod ast;
-mod io;
-mod builtin;
-mod eval;
-mod value;
-mod error;
-mod lexer;
-mod repl;
 
 fn main() {
     let args = env::args().skip(1).collect::<Vec<String>>();
@@ -109,17 +98,4 @@ Options:
   -p             Parse an expression
     ";
     println!("{message}");
-}
-
-// used by file interpreting
-fn tokenize(s: &str) -> Vec<Token> {
-    let lex = Lexer::new(s);
-    let mut vlex = vec![];
-    for t in lex {
-        match t {
-            Err(e) => eprintln!("Tokenizer error: {e}"),
-            Ok(token) => vlex.push(token),
-        }
-    }
-    vlex
 }

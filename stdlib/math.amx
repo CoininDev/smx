@@ -4,6 +4,15 @@ e = 2.718281828459045;
 tau = 6.283185307179586;
 phi = 1.618033988749895;
 
+
+// Named operations
+add = \x. \y. x + y;
+sub = \x. \y. x - y;
+mul = \x. \y. x * y;
+div = \x. \y. x / y;
+pow = \x. \y. x ** y;
+mod = \x. \y. x % y;
+
 // Basic Functions
 abs = \x. x < 0 ? -x, x;
 signum = \x. 

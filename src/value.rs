@@ -236,3 +236,33 @@ impl std::ops::Div for Value {
         }
     }
 }
+
+impl From<f64> for Value {
+    fn from(f: f64) -> Self {
+        Value::Num(NotNan::new(f).expect("NaN is not allowed in SMX"))
+    }
+}
+
+impl From<i32> for Value {
+    fn from(i: i32) -> Self {
+        Value::Num(NotNan::new(i as f64).unwrap())
+    }
+}
+
+impl From<String> for Value {
+    fn from(s: String) -> Self {
+        Value::Str(s)
+    }
+}
+
+impl From<&str> for Value {
+    fn from(s: &str) -> Self {
+        Value::Str(s.to_string())
+    }
+}
+
+impl From<bool> for Value {
+    fn from(b: bool) -> Self {
+        Value::Bool(b)
+    }
+}

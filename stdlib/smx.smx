@@ -1,13 +1,14 @@
 op left 2 (a :> b) = a : \_. b;
 
-_import @{IO} = \(filename ~ string). IO.import {file = filename; skip_underscored = true;};
 
 _smx_path @{IO} = IO.run "echo $SMXLIB_PATH": \x. x.stdout;
-
+_import @{IO} = \(filename ~ string). 
+  IO.import {file = _smx_path + filename; skip_underscored = true;};
 
 _result @{IO} = 
-     _import (_smx_path + "/test.amx") 
-  :> _import (_smx_path + "/matchop.amx")
-  :> _import (_smx_path + "/strings.amx")
-  :> _import (_smx_path + "/lists.amx")
-  :> _import (_smx_path + "/logic.amx");
+     _import ("/test.amx") 
+  :> _import ("/matchop.amx")
+  :> _import ("/math.amx")
+  :> _import ("/strings.amx")
+  :> _import ("/lists.amx")
+  :> _import ("/logic.amx");

@@ -171,7 +171,7 @@ impl Parser {
     pub fn binding_power(&self, op: OpSig) -> (f32, f32) {
         match self.op_table.get(&op) {
             Some(a) => a.prec_pair(),
-            _ => Operator::new(Assoc::Left, 8.).prec_pair(),
+            _ => Operator::new(Assoc::Left, 1.).prec_pair(),
         }
     }
 

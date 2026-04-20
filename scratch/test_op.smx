@@ -1,0 +1,7 @@
+add = \a. \b. a + b;
+sqrt = \n. n ** 0.5;
+
+op left 1 (a :, b) = a , b;
+
+result = 1 : add 3 : sqrt :, 3;
+// expected: (2, 3)
