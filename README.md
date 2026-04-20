@@ -134,6 +134,19 @@ convert ("1", 'number); // 1
 convert (1, 'bool); // true
 convert ("hello", 'number); // {nan = true;}
 ```
+
+### Strict Numeric Types
+
+SMX supports fixed-size numeric types for specialized applications (e.g., smart contracts):
+- **Unsigned**: `u8`, `u16`, `u32`, `u64`, `u128`, `u256`
+- **Signed**: `i8`, `i16`, `i32`, `i64`, `i128`, `i256`
+- **Float**: `f8`, `f16`, `f32`, `f64`, `f128`, `f256`
+
+Declare them using suffixes or the `convert` builtin:
+```smx
+val = 100u256;
+count = convert(10, 'i32);
+```
 ---
 
 ## Environments
@@ -142,7 +155,21 @@ An **environment** is a named scope containing variable bindings. SMX code itsel
 
 > OBS: You can define resources and operators inside environments, but they won't be accessible with a `.`
 
-Important: Unlike Lisp, SMX environment haves no layers, it is a flat name => value correspondency, which can be merged and subtracted with other environments. This environment arithmetic is used for creating function apply environments.
+### Environment Arithmetic
+
+Environments support arithmetic operations for merging and manipulating scopes:
+- **Addition (`+`)**: Merges two environments. If keys overlap, the right-side value takes precedence.
+- **Subtraction (`-`)**: Removes keys from an environment. Accepts a list of names (frozen idents or strings) or a single name.
+
+```smx
+env1 = {a = 1; b = 2;};
+env2 = {b = 3; c = 4;};
+
+merged = env1 + env2; // { a = 1; b = 3; c = 4; }
+cleaned = merged - ('b, 'c, nil); // { a = 1; }
+```
+
+Important: Unlike Lisp, SMX environment haves no layers, it is a flat name => value correspondency.
 
 ### Inline Environment + Eval
 
@@ -193,6 +220,31 @@ listas ~ [string | number | nil] = "hello", 42, 3.14, nil;
 ```
 
 The type annotation `[string | number | nil]` means the list may contain values of any of those types, in any order.
+
+### Environment Schemas
+
+You can enforce structure on environments using schemas:
+- `var;` — requires the variable to exist.
+- `var ~ type;` — requires the variable to exist and match the type.
+
+```smx
+type person = {
+    name ~ string;
+    age ~ number;
+    metadata; // any type
+};
+
+greet = \p ~ person. "Hello, " + p.name;
+```
+
+### Type Aliases
+
+Use the `type` keyword to define reusable type abbreviations:
+
+```smx
+type u256_list = [u256];
+type point = { x ~ number; y ~ number; };
+```
 
 ---
 

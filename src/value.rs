@@ -241,6 +241,10 @@ impl std::ops::Add for Value {
             (Value::Str(a), Value::Str(b)) => Value::Str(format!("{a}{b}")),
             (Value::Str(s), other) => Value::Str(format!("{s}{other}")),
             (other, Value::Str(s)) => Value::Str(format!("{other}{s}")),
+            (Value::Environment(mut a), Value::Environment(b)) => {
+                a.extend(b);
+                Value::Environment(a)
+            }
             _ => Value::Nil,
         }
     }
@@ -282,6 +286,17 @@ impl std::ops::Sub for Value {
                     (NumericValue::Uint(a), NumericValue::Uint(b)) => Value::StrictNum(t1, NumericValue::Uint(a - b)),
                     _ => Value::Nil,
                 }
+            }
+            (Value::Environment(mut a), rhs) => {
+                let keys = rhs.pair_to_vec();
+                for k in keys {
+                    match k {
+                        Value::Str(s) => { a.remove(&s); }
+                        Value::Frozen(Expression::Var(v)) if v.len() == 1 => { a.remove(&v[0]); }
+                        _ => {}
+                    }
+                }
+                Value::Environment(a)
             }
             _ => Value::Nil,
         }

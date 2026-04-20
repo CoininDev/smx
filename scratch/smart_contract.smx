@@ -1,5 +1,6 @@
-resource R = 0;
-resource W = 1;
+// needed for testing only
+resource R = nil;
+resource W = nil;
 
 contract = { 
     name = "zombieFactory"; 
@@ -21,7 +22,7 @@ contract = {
     public = { 
         zombies ~ [{name ~ string; dna ~ u256;}] = nil; 
         
-        createRandomZombie @{R} = \str ~ string. str 
+        createRandomZombie @{R, W} = \str ~ string. str 
         :   R.generateRandomDna 
         :   R.createZombie str 
         ; 
