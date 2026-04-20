@@ -90,6 +90,8 @@ pub enum Keyword {
     False,
     #[strum(to_string = "nil")]
     Nil,
+    #[strum(to_string = "type")]
+    Type,
 }
 
 impl FromStr for Keyword {
@@ -100,6 +102,7 @@ impl FromStr for Keyword {
             "true"  => Ok(Keyword::True),
             "false" => Ok(Keyword::False),
             "nil"   => Ok(Keyword::Nil),
+            "type"  => Ok(Keyword::Type),
             _ => Err(()),
         }
    }

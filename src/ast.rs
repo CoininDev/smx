@@ -54,6 +54,7 @@ pub enum Expression {
     Application(Box<Expression>, Box<Expression>),
     Operation(String, Vec<Expression>),
     ListType(Option<Box<Expression>>), // [string | number]
+    TypeAlias(String, Box<Expression>),
 }
 
 impl Display for Expression {
@@ -104,6 +105,7 @@ impl Display for Expression {
             }
             Self::ListType(Some(x)) => write!(f, "[{}]", *x),
             Self::ListType(None) => write!(f, "[]"),
+            Self::TypeAlias(name, expr) => write!(f, "type {name} = {expr}"),
         }
     }
 }
@@ -285,6 +287,21 @@ impl Parser {
             return self.parse_resource();
         }
 
+        if self.peek_type(0) == Some(&TokenType::Keyword(Keyword::Type)) {
+            self.next();
+            let name = match self.next() {
+                Some(Token { token_type: TokenType::Ident(n), .. }) => n,
+                _ => return Err(ParsingError::InvalidAssignment),
+            };
+            self.expect(TokenType::Op("=".into()))?;
+            let expr = self.parse_expr_pratt(0.0)?;
+            return Ok(Assign(
+                Expression::Var(vec!["__TYPE__".into(), name]),
+                vec![],
+                expr
+            ));
+        }
+
         let id = self.parse_pattern()?;
 
         let resources = self.parse_resource_importation()?;
@@ -385,6 +402,7 @@ impl Parser {
             Keyword::True => Ok(Expression::Bool(true)),
             Keyword::False => Ok(Expression::Bool(false)),
             Keyword::Nil => Ok(Expression::Nil),
+            Keyword::Type => Err(ParsingError::InvalidExpression("Keyword 'type' cannot be used as an expression".into())),
         }
     }
 
@@ -407,17 +425,23 @@ impl Parser {
     }
 
     pub fn parse_env(&mut self) -> ParseResult<Expression> {
-        let mut env = vec![];
-
+        let mut body = vec![];
         while self.peek_type(0) != Some(&TokenType::RBrace) {
-            let ass = self.parse_assign()?;
-            env.push(ass);
+            let id = self.parse_pattern()?;
+            let resources = self.parse_resource_importation()?;
+
+            if self.peek_type(0) == Some(&TokenType::Op("=".into())) {
+                self.next();
+                let expr = self.parse_expr_pratt(0.)?;
+                body.push(Assign(id, resources, expr));
+            } else {
+                body.push(Assign(id, resources, Expression::Nil));
+            }
+
             self.expect(TokenType::EndExpr)?;
         }
-
-        self.expect(TokenType::RBrace)?;
-
-        Ok(Expression::Environment(env))
+        self.next();
+        Ok(Expression::Environment(body))
     }
 
     pub fn parse_op(&mut self) -> ParseResult<Assign> {

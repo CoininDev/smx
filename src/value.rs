@@ -61,6 +61,7 @@ pub enum Value {
     Str(String),
     Lambda(Pattern, Expression, Environment, Vec<String>),
     Environment(Environment),
+    Type(PatternType),
     Frozen(Expression),
     Pattern(Pattern),
     Builtin(String),
@@ -108,6 +109,7 @@ pub enum Pattern {
 
 #[derive(Debug, Clone, PartialEq, Hash, Eq)]
 pub enum PatternType {
+    Any,
     Nil,
     Pattern,
     Number,
@@ -116,6 +118,7 @@ pub enum PatternType {
     Lambda,
     Bool,
     Environment,
+    EnvironmentWithSchema(Vec<(String, PatternType)>),
     Frozen,
     List(Vec<PatternType>),
 }
@@ -123,6 +126,7 @@ pub enum PatternType {
 impl std::fmt::Display for PatternType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            PatternType::Any => write!(f, "any"),
             PatternType::Nil => write!(f, "nil"),
             PatternType::Number => write!(f, "number"),
             PatternType::StrictNumber(t) => write!(f, "{}", t),
@@ -131,6 +135,14 @@ impl std::fmt::Display for PatternType {
             PatternType::Lambda => write!(f, "fn"),
             PatternType::Pattern => write!(f, "pattern"),
             PatternType::Environment => write!(f, "env"),
+            PatternType::EnvironmentWithSchema(schema) => {
+                write!(f, "{{")?;
+                for (i, (k, t)) in schema.iter().enumerate() {
+                    if i > 0 { write!(f, "; ")?; }
+                    write!(f, "{} ~ {}", k, t)?;
+                }
+                write!(f, "}}")
+            }
             PatternType::Frozen => write!(f, "frozen"),
             PatternType::List(items) => {
                 let joined = items
@@ -177,6 +189,7 @@ impl std::fmt::Display for Value {
             Self::Bool(b) => write!(f, "{b}"),
             Self::Pattern(p) => write!(f, "#{p}"),
             Self::Pair(a, b) => write!(f, "({}, {})", *a, *b),
+            Self::Type(p) => write!(f, "type {p}"),
             Self::Frozen(e) => write!(f, "'{e}"),
             Self::Native(a) => write!(f, "<#{a:02}>"),
             Self::Environment(e) => {

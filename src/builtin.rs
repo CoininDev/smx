@@ -20,10 +20,10 @@ macro_rules! eval_error {
 }
 
 // operator #
-pub fn builtin_pattern_from_value(v: Value) -> Value {
-    fn rec(v: Value) -> Pattern {
+pub fn builtin_pattern_from_value(v: Value, amb: &Ambient) -> Value {
+    fn rec(v: Value, amb: &Ambient) -> Pattern {
         match v {
-            Value::Pair(a, b) => Pattern::Pair(Box::new(rec(*a)), Box::new(rec(*b))),
+            Value::Pair(a, b) => Pattern::Pair(Box::new(rec(*a, amb)), Box::new(rec(*b, amb))),
             Value::Frozen(Expression::Var(x)) => match x.as_slice() {
                 [w] if w == "_" => Pattern::Wildcard,
                 [any] => Pattern::Name(any.into()),
@@ -33,14 +33,14 @@ pub fn builtin_pattern_from_value(v: Value) -> Value {
                 [Expression::Var(left), Expression::Var(_)]
                 | [Expression::Var(left), Expression::ListType(_)] => Pattern::TypedName(
                     left[0].clone(),
-                    eval_pattern_type(&xs[1]).unwrap_or(PatternType::Nil),
+                    eval_pattern_type(&xs[1], amb).unwrap_or(PatternType::Nil),
                 ),
                 _ => Pattern::Wildcard,
             },
             other => Pattern::Value(Box::new(other)),
         }
     }
-    Value::Pattern(rec(v))
+    Value::Pattern(rec(v, amb))
 }
 pub trait IBuiltin {
     fn matches(&self, name: &str) -> bool;

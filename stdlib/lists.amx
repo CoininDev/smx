@@ -106,4 +106,5 @@ lists = {
     chunks_of = _chunks_of__y _chunks_of__y;
     elaborate = _elaborate__y _elaborate__y;
     enumerate = _enumerate__y _enumerate__y 0;
+    push = \l ~ []. \x. (unnilize l), x, nil;
 };

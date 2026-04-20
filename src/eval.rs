@@ -69,9 +69,15 @@ pub fn eval_assign_imut(a: Assign, amb: &Ambient) -> EvalResult<Ambient> {
         if m[0] == "__RESOURCE__" {
             return Ok(Ambient::default());
         }
+        if m.len() == 2 && m[0] == "__TYPE__" {
+            let ty = eval_pattern_type(&a.2, amb)?;
+            let mut r = Ambient::default();
+            r.vars.insert(m[1].clone(), Value::Type(ty));
+            return Ok(r);
+        }
     }
 
-    let pat = eval_pattern(a.0)?;
+    let pat = eval_pattern(a.0, amb)?;
     
     let mut amb2 = amb.clone();
     let mut added_resources = vec![];
@@ -106,9 +112,14 @@ pub fn eval_assign(a: Assign, amb: &mut Ambient) -> EvalResult<()> {
         if m[0] == "__RESOURCE__" {
             return Ok(());
         }
+        if m.len() == 2 && m[0] == "__TYPE__" {
+            let ty = eval_pattern_type(&a.2, amb)?;
+            amb.vars.insert(m[1].clone(), Value::Type(ty));
+            return Ok(());
+        }
     }
 
-    let pat = eval_pattern(a.0)?;
+    let pat = eval_pattern(a.0, amb)?;
     
     let mut amb2 = amb.clone();
     let mut added_resources = vec![];
@@ -233,7 +244,7 @@ pub fn eval_expr(e: Expression, amb: &mut Ambient) -> EvalResult<Value> {
                 cap_env.remove(r);
             }
             Ok(Value::Lambda(
-                eval_pattern(*param)?, *body, cap_env, resources)
+                eval_pattern(*param, amb)?, *body, cap_env, resources)
             )
         },
 
@@ -244,21 +255,26 @@ pub fn eval_expr(e: Expression, amb: &mut Ambient) -> EvalResult<Value> {
         ),
         Expression::ListType(_) => Err(eval_error!(PatternError(
                     "The [1, 2, 3] syntax is just valid in types, please, use (1, 2, 3) instead".into()
-        )))
+        ))),
+        Expression::TypeAlias(_name, expr) => {
+            // This is handled in eval_assign, but if called directly:
+            let ty = eval_pattern_type(&expr, amb)?;
+            Ok(Value::Type(ty))
+        }
     }
 }
 
-pub fn eval_pattern_type(ty: &Expression) -> EvalResult<PatternType> {
-    fn listing (a: Expression) -> Result<im::Vector<PatternType>, String> {
+pub fn eval_pattern_type(ty: &Expression, amb: &Ambient) -> EvalResult<PatternType> {
+    fn listing(a: Expression, amb: &Ambient) -> Result<im::Vector<PatternType>, String> {
         match a {
             Expression::Operation(op, xs) if op == "|" => match xs.as_slice() {
                 [left, right] => Ok(
-                    vector![eval_pattern_type(left).map_err(|e| format!("left error: {e}"))?] + listing(right.clone())?
+                    vector![eval_pattern_type(left, amb).map_err(|e| format!("left error: {e}"))?] + listing(right.clone(), amb)?
                 ),
                 _ => Err("dhuah".into())
             }
 
-            _ => Ok(vector![eval_pattern_type(&a).map_err(|e| format!("{e}"))?]),
+            _ => Ok(vector![eval_pattern_type(&a, amb).map_err(|e| format!("{e}"))?]),
         }
     }
 
@@ -276,23 +292,53 @@ pub fn eval_pattern_type(ty: &Expression) -> EvalResult<PatternType> {
                 if let Ok(t) = NumericType::from_str(other) {
                     Ok(PatternType::StrictNumber(t))
                 } else {
+                    if let Some(Value::Type(t)) = amb.vars.get(other) {
+                        return Ok(t.clone());
+                    }
                     Err(eval_error!(PatternError(format!("unknown type name: {other}"))))
                 }
             }
         }
+        Expression::Environment(body) => {
+            let mut schema = vec![];
+            for Assign(id, _, expr) in body {
+                match id {
+                    Expression::Var(v) if v.len() == 1 => {
+                        let name = v[0].clone();
+                        let ty = if let Expression::Nil = expr {
+                            PatternType::Any
+                        } else {
+                            eval_pattern_type(expr, amb)?
+                        };
+                        schema.push((name, ty));
+                    }
+                    Expression::Operation(op, xs) if op == "~" => {
+                        match xs.as_slice() {
+                            [Expression::Var(v), ty_expr] if v.len() == 1 => {
+                                schema.push((v[0].clone(), eval_pattern_type(ty_expr, amb)?));
+                            }
+                            _ => return Err(eval_error!(PatternError(format!("Invalid schema entry: {}", id))))
+                        }
+                    }
+                    _ => return Err(eval_error!(PatternError(format!("Invalid schema entry: {}", id))))
+                }
+            }
+            Ok(PatternType::EnvironmentWithSchema(schema))
+        }
         Expression::ListType(Some(box x)) => {
-            let list: Vec<_> = listing(x.clone()).map_err(|e| eval_error!(PatternError(e)))?.into_iter().collect();
+            let list: Vec<_> = listing(x.clone(), amb).map_err(|e| eval_error!(PatternError(e)))?.into_iter().collect();
             Ok(PatternType::List(list))
         },
 
         Expression::ListType(None) => Ok(PatternType::List(vec![])),
+        Expression::Nil => Ok(PatternType::Nil),
         _ => Err(eval_error!(PatternError(format!("invalid pattern expression: {ty:?}"))))
     }
 }
 
-pub fn eval_pattern(input: Expression) -> EvalResult<Pattern> {
+pub fn eval_pattern(input: Expression, amb: &Ambient) -> EvalResult<Pattern> {
     let eval = |x: &Expression| -> EvalResult<Pattern> {
-        eval_pattern(x.clone())
+        eval_pattern(x.clone(), amb)
     };
     
     match input {
@@ -301,9 +347,11 @@ pub fn eval_pattern(input: Expression) -> EvalResult<Pattern> {
                 _ => Err(eval_error!(InvalidSizeOfArgsFor(",".to_string()))),
         },
 
-        Expression::Operation(op, exprs) if op == "~" => match exprs.as_slice() {
-                [left, right] => Ok(Pattern::TypedName(left.to_string(), eval_pattern_type(right)?)),
-                _ => Err(eval_error!(InvalidSizeOfArgsFor("~".to_string()))),
+        Expression::Operation(ref op, ref exprs) if op == "~" => match exprs.as_slice() {
+            [Expression::Var(v), ty] if v.len() == 1 => {
+                Ok(Pattern::TypedName(v[0].clone(), eval_pattern_type(ty, amb)?))
+            }
+            _ => Err(eval_error!(PatternError(format!("Invalid typed name: {:?}", input))))
         },
 
         Expression::Var(v) if matches!(v.as_slice(), [x] if x == "_") => Ok(Pattern::Wildcard),
@@ -329,10 +377,21 @@ pub fn eval_pattern_pair(pat: Pattern, val: Value) -> Result<Environment, EvalEr
 
     fn check_type(ty: &PatternType, value: &Value) -> Result<(), String> {
         match (ty, value) {
+            (PatternType::Any, _) => Ok(()),
             (PatternType::Nil, Value::Nil) => Ok(()),
             (PatternType::String, Value::Str(_)) => Ok(()),
             (PatternType::Bool, Value::Bool(_)) => Ok(()),
             (PatternType::Environment, Value::Environment(_)) => Ok(()),
+            (PatternType::EnvironmentWithSchema(schema), Value::Environment(env)) => {
+                for (name, expected_ty) in schema {
+                    if let Some(val) = env.get(name) {
+                        check_type(expected_ty, val)?;
+                    } else {
+                        return Err(format!("Environment missing required field: {}", name));
+                    }
+                }
+                Ok(())
+            }
             (PatternType::Number, Value::Num(_)) => Ok(()),
             (PatternType::StrictNumber(t), Value::StrictNum(vt, _)) if t == vt => Ok(()),
             (PatternType::Frozen, Value::Frozen(_)) => Ok(()),
@@ -478,7 +537,7 @@ pub fn eval_operation(op: String, exprs: Vec<Expression>, amb: &mut Ambient)
 
     match op.as_str() {
         "#" => match exprs.as_slice() {
-            [expr] => Ok(builtin_pattern_from_value(eval(expr)?)),
+            [expr] => Ok(builtin_pattern_from_value(eval(expr)?, amb)),
             _ => Err(eval_error!(InvalidSizeOfArgsFor("#".to_string()))),
         },
         "!" => match exprs.as_slice() {

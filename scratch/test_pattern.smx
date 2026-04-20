@@ -1,6 +1,0 @@
-// Test strict type patterns
-a ~ i32 = 10i32;
-_ @{IO} = IO.print "a ~ i32 = 10i32: OK";
-
-b ~ f64 = 3.14f64;
-_ @{IO} = IO.print "b ~ f64 = 3.14f64: OK";
