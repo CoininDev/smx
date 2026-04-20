@@ -1,0 +1,15 @@
+// Test convert builtin
+a = 10;
+b = convert (a, 'i32);
+_ @{IO} = IO.print "convert (10, 'i32):";
+_ @{IO} = IO.print (convert (b, 'string));
+
+c = 3i32; 
+d = convert (c, 'f64);
+_ @{IO} = IO.print "convert (3i32, 'f64):";
+_ @{IO} = IO.print (convert (d, 'string));
+
+e = "256";
+f = convert (e, 'u8);
+_ @{IO} = IO.print "convert (256, 'u8):"; 
+_ @{IO} = IO.print (convert (f, 'string));

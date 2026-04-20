@@ -2,7 +2,30 @@ use crate::{error::ParsingError, lexer::*};
 use im::{HashMap, hashmap};
 use ordered_float::NotNan;
 use std::fmt::Display;
+use std::str::FromStr;
+use strum_macros::{EnumString, EnumIter};
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, EnumString, EnumIter, strum_macros::Display)]
+pub enum NumericType {
+    #[strum(to_string = "f8")] F8,
+    #[strum(to_string = "f16")] F16,
+    #[strum(to_string = "f32")] F32,
+    #[strum(to_string = "f64")] F64,
+    #[strum(to_string = "f128")] F128,
+    #[strum(to_string = "f256")] F256,
+    #[strum(to_string = "i8")] I8,
+    #[strum(to_string = "i16")] I16,
+    #[strum(to_string = "i32")] I32,
+    #[strum(to_string = "i64")] I64,
+    #[strum(to_string = "i128")] I128,
+    #[strum(to_string = "i256")] I256,
+    #[strum(to_string = "u8")] U8,
+    #[strum(to_string = "u16")] U16,
+    #[strum(to_string = "u32")] U32,
+    #[strum(to_string = "u64")] U64,
+    #[strum(to_string = "u128")] U128,
+    #[strum(to_string = "u256")] U256,
+}
 #[derive(Debug, Clone)]
 pub struct Program {
     pub body: Vec<Assign>,
@@ -17,6 +40,7 @@ pub enum Expression {
     Var(Vec<String>),
     OpSigVar(OpSig),
     Num(NotNan<f64>),
+    StrictNum(NumericType, String),
     Str(String),
     Bool(bool),
     Nil,
@@ -25,6 +49,7 @@ pub enum Expression {
     Lambda(
         Box<Expression>, /* param */
         Box<Expression>, /* body */
+        Vec<String>,     /* resources */
     ),
     Application(Box<Expression>, Box<Expression>),
     Operation(String, Vec<Expression>),
@@ -44,8 +69,20 @@ impl Display for Expression {
             Self::OpSigVar(OpSig::Infix(x)) => write!(f, "{x}"),
             Self::OpSigVar(OpSig::Prefix(x)) => write!(f, "{x}"),
             Self::Num(i) => write!(f, "{i}"),
+            Self::StrictNum(t, v) => write!(f, "{v}{t}"),
             Self::Str(s) => write!(f, "\"{s}\""),
-            Self::Lambda(arg, body) => write!(f, "\\{arg}. {body}"),
+            Self::Lambda(arg, body, res) => {
+                if res.is_empty() {
+                    write!(f, "\\{arg}. {body}")
+                } else {
+                    write!(f, "\\{arg} @{{")?;
+                    for (i, r) in res.iter().enumerate() {
+                        if i > 0 { write!(f, ", ")?; }
+                        write!(f, "{}", r)?;
+                    }
+                    write!(f, "}}. {body}")
+                }
+            }
             Self::Nil => write!(f, "nil"),
             Self::Frozen(x) => write!(f, "'({})", *x),
             Self::Application(a, b) => write!(f, "({a} {b})"),
@@ -352,21 +389,7 @@ impl Parser {
     }
 
     pub fn parse_pattern(&mut self) -> ParseResult<Expression> {
-        match self.peek_type(0) {
-            Some(TokenType::Ident(x)) => {
-                let cu = Ok(Expression::Var(vec![x.to_string()]));
-                self.next();
-                cu
-            }
-            Some(TokenType::LParen) => {
-                self.next();
-                let a = self.parse_expr_pratt(0.)?;
-                self.expect(TokenType::RParen)?;
-                Ok(a)
-            }
-            Some(x) => Err(ParsingError::Expected("pattern".to_string(), x.to_string())),
-            None => Err(ParsingError::UnexpectedEof),
-        }
+        self.parse_expr_pratt(0.0)
     }
 
     pub fn parse_lambda(&mut self) -> ParseResult<Expression> {
@@ -375,11 +398,12 @@ impl Parser {
         let param = self.parse_expr_pratt(0.);
         self.dot_is_separator = old_flag;
         let param = param?;
+        let resources = self.parse_resource_importation()?;
 
         self.expect(TokenType::Dot)?;
         let body = self.parse_expr_pratt(0.)?;
 
-        Ok(Expression::Lambda(Box::new(param), Box::new(body)))
+        Ok(Expression::Lambda(Box::new(param), Box::new(body), resources))
     }
 
     pub fn parse_env(&mut self) -> ParseResult<Expression> {
@@ -455,13 +479,13 @@ impl Parser {
 
                 let params = Expression::Operation(",".into(), vec![param1, param2]);
 
-                Expression::Lambda(Box::new(params), Box::new(Expression::Nil))
+                Expression::Lambda(Box::new(params), Box::new(Expression::Nil), vec![])
             }
             OpSig::Prefix(_) => {
                 self.next();
                 let param = self.parse_pattern()?;
 
-                Expression::Lambda(Box::new(param), Box::new(Expression::Nil))
+                Expression::Lambda(Box::new(param), Box::new(Expression::Nil), vec![])
             }
         };
 
@@ -480,7 +504,7 @@ impl Parser {
         );
 
         let res = match res {
-            Expression::Lambda(param, _) => Expression::Lambda(param, Box::new(body)),
+            Expression::Lambda(param, _, _) => Expression::Lambda(param, Box::new(body), vec![]),
             _ => unreachable!(),
         };
         Ok(Assign(Expression::OpSigVar(op_sig), vec![], res))
@@ -492,6 +516,15 @@ impl Parser {
                 token_type: TokenType::Number(n),
                 ..
             }) => Ok(Expression::Num(mount_num(n)?)),
+
+            Some(Token {
+                token_type: TokenType::StrictNumber(n, s),
+                ..
+            }) => {
+                let t = NumericType::from_str(&s)
+                    .map_err(|_| ParsingError::InvalidExpression(format!("Invalid numeric suffix: {s}")))?;
+                Ok(Expression::StrictNum(t, n))
+            }
 
             Some(Token {
                 token_type: TokenType::Ident(i),
@@ -607,7 +640,7 @@ impl Parser {
                 | Some(TokenType::DebugDot)
                 | Some(TokenType::Backslash) => break,
 
-                Some(TokenType::Op(op)) if op == "=" => break,
+                Some(TokenType::Op(op)) if op == "=" || op == "@" => break,
 
                 Some(TokenType::Op(op)) => op.clone(),
                 Some(_) => "<APPLY>".to_string(),

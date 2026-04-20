@@ -1,0 +1,2 @@
+example @{IO} = \x. IO.print x;
+result = example "olá mundo";

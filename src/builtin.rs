@@ -1,5 +1,9 @@
 use im::hashmap;
-
+use std::str::FromStr;
+use strum::IntoEnumIterator;
+use num_traits::ToPrimitive;
+use ordered_float::NotNan;
+use num_bigint::{BigInt, BigUint, ToBigInt, ToBigUint};
 use crate::{
     ast::*,
     error::EvalErrorType::*,
@@ -47,7 +51,7 @@ pub fn builtin_registry() -> Vec<Box<dyn IBuiltin>> {
     fn n(a: impl IBuiltin + 'static) -> Box<dyn IBuiltin> {
         Box::new(a)
     }
-    vec![
+    let mut res = vec![
         n(TryBuiltin),
         n(EvalBuiltin),
         n(HasBuiltin),
@@ -55,7 +59,13 @@ pub fn builtin_registry() -> Vec<Box<dyn IBuiltin>> {
         n(HeadBuiltin),
         n(TailBuiltin),
         n(ConvertBuiltin),
-    ]
+    ];
+
+    for t in NumericType::iter() {
+        res.push(Box::new(StrictTypeBuiltin(t)));
+    }
+
+    res
 }
 
 #[derive(Clone)]
@@ -259,11 +269,19 @@ impl IBuiltin for ConvertBuiltin {
                     }
                     Ok(Value::Environment(env))
                 }
-                _ => Err(eval_error!(WrongTypes(
-                    "convert".into(),
-                    PatternType::Frozen,
-                    Value::Frozen(Expression::Var(t))
-                ))),
+                _ => {
+                    if t.len() == 1 {
+                        let s = &t[0];
+                        if let Ok(nt) = NumericType::from_str(s) {
+                            return StrictTypeBuiltin(nt).call(*val, _amb);
+                        }
+                    }
+                    Err(eval_error!(WrongTypes(
+                        "convert".into(),
+                        PatternType::Frozen,
+                        Value::Frozen(Expression::Var(t))
+                    )))
+                }
             },
             other => Err(eval_error!(WrongTypes(
                 "convert".into(),
@@ -271,5 +289,61 @@ impl IBuiltin for ConvertBuiltin {
                 other
             ))),
         }
+    }
+}
+
+#[derive(Clone)]
+pub struct StrictTypeBuiltin(NumericType);
+impl IBuiltin for StrictTypeBuiltin {
+    fn matches(&self, name: &str) -> bool {
+        name == self.0.to_string()
+    }
+    fn call(&self, arg: Value, _amb: &Ambient) -> EvalResult<Value> {
+        let t = self.0;
+        let val = match arg {
+            Value::Num(n) => {
+                match t {
+                    NumericType::F8 | NumericType::F16 | NumericType::F32 | NumericType::F64 | NumericType::F128 | NumericType::F256 => {
+                        NumericValue::Float(n)
+                    }
+                    NumericType::I8 | NumericType::I16 | NumericType::I32 | NumericType::I64 | NumericType::I128 | NumericType::I256 => {
+                        NumericValue::Int(BigInt::from(*n as i128))
+                    }
+                    NumericType::U8 | NumericType::U16 | NumericType::U32 | NumericType::U64 | NumericType::U128 | NumericType::U256 => {
+                        NumericValue::Uint(BigUint::from(*n as u128))
+                    }
+                }
+            }
+            Value::StrictNum(_, v) => {
+                 match (t, v) {
+                    (NumericType::F8 | NumericType::F16 | NumericType::F32 | NumericType::F64 | NumericType::F128 | NumericType::F256, NumericValue::Float(f)) => NumericValue::Float(f),
+                    (NumericType::F8 | NumericType::F16 | NumericType::F32 | NumericType::F64 | NumericType::F128 | NumericType::F256, NumericValue::Int(i)) => NumericValue::Float(NotNan::new(i.to_f64().unwrap_or(0.)).unwrap()),
+                    (NumericType::F8 | NumericType::F16 | NumericType::F32 | NumericType::F64 | NumericType::F128 | NumericType::F256, NumericValue::Uint(u)) => NumericValue::Float(NotNan::new(u.to_f64().unwrap_or(0.)).unwrap()),
+                    
+                    (NumericType::I8 | NumericType::I16 | NumericType::I32 | NumericType::I64 | NumericType::I128 | NumericType::I256, NumericValue::Float(f)) => NumericValue::Int(BigInt::from(*f as i128)),
+                    (NumericType::I8 | NumericType::I16 | NumericType::I32 | NumericType::I64 | NumericType::I128 | NumericType::I256, NumericValue::Int(i)) => NumericValue::Int(i),
+                    (NumericType::I8 | NumericType::I16 | NumericType::I32 | NumericType::I64 | NumericType::I128 | NumericType::I256, NumericValue::Uint(u)) => NumericValue::Int(u.to_bigint().unwrap()),
+                    
+                    (NumericType::U8 | NumericType::U16 | NumericType::U32 | NumericType::U64 | NumericType::U128 | NumericType::U256, NumericValue::Float(f)) => NumericValue::Uint(BigUint::from(*f as u128)),
+                    (NumericType::U8 | NumericType::U16 | NumericType::U32 | NumericType::U64 | NumericType::U128 | NumericType::U256, NumericValue::Int(i)) => NumericValue::Uint(i.to_biguint().unwrap_or_default()),
+                    (NumericType::U8 | NumericType::U16 | NumericType::U32 | NumericType::U64 | NumericType::U128 | NumericType::U256, NumericValue::Uint(u)) => NumericValue::Uint(u),
+                 }
+            }
+            Value::Str(s) => {
+                match t {
+                    NumericType::F8 | NumericType::F16 | NumericType::F32 | NumericType::F64 | NumericType::F128 | NumericType::F256 => {
+                        NumericValue::Float(NotNan::new(s.parse::<f64>().map_err(|e| eval_error!(GenericError(e.to_string())))?).unwrap())
+                    }
+                    NumericType::I8 | NumericType::I16 | NumericType::I32 | NumericType::I64 | NumericType::I128 | NumericType::I256 => {
+                        NumericValue::Int(s.parse::<BigInt>().map_err(|e| eval_error!(GenericError(e.to_string())))?)
+                    }
+                    NumericType::U8 | NumericType::U16 | NumericType::U32 | NumericType::U64 | NumericType::U128 | NumericType::U256 => {
+                        NumericValue::Uint(s.parse::<BigUint>().map_err(|e| eval_error!(GenericError(e.to_string())))?)
+                    }
+                }
+            }
+            _ => return Err(eval_error!(WrongTypes(t.to_string(), PatternType::Number, arg))),
+        };
+        Ok(Value::StrictNum(t, val))
     }
 }

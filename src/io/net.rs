@@ -57,7 +57,7 @@ impl NetIoObj {
                 };
 
                 let receive = match env.get("receive") {
-                    Some(Value::Lambda(_,_,_)) => env.get("receive").unwrap(),
+                    Some(Value::Lambda(_,_,_,_)) => env.get("receive").unwrap(),
                     _ => return wrong_types("receive")
                 };
 

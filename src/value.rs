@@ -2,7 +2,9 @@ use crate::{ast::*, eval::*};
 use std::{any::Any, rc::Rc, fmt::Debug};
 use std::cmp::Ordering;
 use ordered_float::NotNan;
-
+use num_bigint::{BigInt, BigUint};
+use num_traits::ToPrimitive;
+use strum_macros::EnumString;
 
 #[derive(Debug, Default, Clone)]
 pub struct Ambient {
@@ -34,11 +36,30 @@ impl Ambient {
     }
 }
 
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum NumericValue {
+    Float(NotNan<f64>),
+    Int(BigInt),
+    Uint(BigUint),
+}
+
+impl std::fmt::Display for NumericValue {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Float(x) => write!(f, "{x}"),
+            Self::Int(x)   => write!(f, "{x}"),
+            Self::Uint(x)  => write!(f, "{x}"),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Value {
     Num(NotNan<f64>),
+    StrictNum(NumericType, NumericValue),
     Str(String),
-    Lambda(Pattern, Expression, Environment),
+    Lambda(Pattern, Expression, Environment, Vec<String>),
     Environment(Environment),
     Frozen(Expression),
     Pattern(Pattern),
@@ -90,6 +111,7 @@ pub enum PatternType {
     Nil,
     Pattern,
     Number,
+    StrictNumber(NumericType),
     String,
     Lambda,
     Bool,
@@ -103,6 +125,7 @@ impl std::fmt::Display for PatternType {
         match self {
             PatternType::Nil => write!(f, "nil"),
             PatternType::Number => write!(f, "number"),
+            PatternType::StrictNumber(t) => write!(f, "{}", t),
             PatternType::String => write!(f, "string"),
             PatternType::Bool => write!(f, "bool"),
             PatternType::Lambda => write!(f, "fn"),
@@ -136,8 +159,20 @@ impl std::fmt::Display for Value {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Num(x) => write!(f, "{x}"),
+            Self::StrictNum(t, v) => write!(f, "{}{}", v, t),
             Self::Str(s) => write!(f, "\"{s}\""),
-            Self::Lambda(arg, body, _) => write!(f, "(\\{arg}. {body})"),
+            Self::Lambda(arg, body, _, res) => {
+                if res.is_empty() {
+                    write!(f, "(\\{arg}. {body})")
+                } else {
+                    write!(f, "(\\{arg} @{{")?;
+                    for (i, r) in res.iter().enumerate() {
+                        if i > 0 { write!(f, ", ")?; }
+                        write!(f, "{}", r)?;
+                    }
+                    write!(f, "}}. {body})")
+                }
+            },
             Self::Builtin(b) => write!(f, "{b}"),
             Self::Bool(b) => write!(f, "{b}"),
             Self::Pattern(p) => write!(f, "#{p}"),
@@ -161,6 +196,14 @@ impl PartialOrd for Value {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         match (self, other) {
             (Value::Num(a), Value::Num(b)) => a.partial_cmp(b),
+            (Value::StrictNum(t1, v1), Value::StrictNum(t2, v2)) if t1 == t2 => {
+                match (v1, v2) {
+                    (NumericValue::Float(a), NumericValue::Float(b)) => a.partial_cmp(b),
+                    (NumericValue::Int(a), NumericValue::Int(b)) => a.partial_cmp(b),
+                    (NumericValue::Uint(a), NumericValue::Uint(b)) => a.partial_cmp(b),
+                    _ => None,
+                }
+            }
             (Value::Bool(a), Value::Bool(b)) => a.partial_cmp(b),
             (Value::Nil, Value::Nil) => Some(Ordering::Equal),
             _ => None,
@@ -174,6 +217,14 @@ impl std::ops::Add for Value {
     fn add(self, rhs: Self) -> Self::Output {
         match (self, rhs) {
             (Value::Num(a), Value::Num(b)) => Value::Num(a + b),
+            (Value::StrictNum(t1, v1), Value::StrictNum(t2, v2)) if t1 == t2 => {
+                match (v1, v2) {
+                    (NumericValue::Float(a), NumericValue::Float(b)) => Value::StrictNum(t1, NumericValue::Float(a + b)),
+                    (NumericValue::Int(a), NumericValue::Int(b)) => Value::StrictNum(t1, NumericValue::Int(a + b)),
+                    (NumericValue::Uint(a), NumericValue::Uint(b)) => Value::StrictNum(t1, NumericValue::Uint(a + b)),
+                    _ => Value::Nil,
+                }
+            }
             (Value::Str(a), Value::Str(b)) => Value::Str(format!("{a}{b}")),
             (Value::Str(s), other) => Value::Str(format!("{s}{other}")),
             (other, Value::Str(s)) => Value::Str(format!("{other}{s}")),
@@ -187,6 +238,8 @@ impl std::ops::Neg for Value {
     fn neg(self) -> Self::Output {
         match self {
             Value::Num(a) => Value::Num(-a),
+            Value::StrictNum(t, NumericValue::Float(a)) => Value::StrictNum(t, NumericValue::Float(-a)),
+            Value::StrictNum(t, NumericValue::Int(a)) => Value::StrictNum(t, NumericValue::Int(-a)),
             _ => Value::Nil,
         }
     }
@@ -209,6 +262,14 @@ impl std::ops::Sub for Value {
     fn sub(self, rhs: Self) -> Self::Output {
         match (self, rhs) {
             (Value::Num(a), Value::Num(b)) => Value::Num(a - b),
+            (Value::StrictNum(t1, v1), Value::StrictNum(t2, v2)) if t1 == t2 => {
+                match (v1, v2) {
+                    (NumericValue::Float(a), NumericValue::Float(b)) => Value::StrictNum(t1, NumericValue::Float(a - b)),
+                    (NumericValue::Int(a), NumericValue::Int(b)) => Value::StrictNum(t1, NumericValue::Int(a - b)),
+                    (NumericValue::Uint(a), NumericValue::Uint(b)) => Value::StrictNum(t1, NumericValue::Uint(a - b)),
+                    _ => Value::Nil,
+                }
+            }
             _ => Value::Nil,
         }
     }
@@ -220,6 +281,14 @@ impl std::ops::Mul for Value {
     fn mul(self, rhs: Self) -> Self::Output {
         match (self, rhs) {
             (Value::Num(a), Value::Num(b)) => Value::Num(a * b),
+            (Value::StrictNum(t1, v1), Value::StrictNum(t2, v2)) if t1 == t2 => {
+                match (v1, v2) {
+                    (NumericValue::Float(a), NumericValue::Float(b)) => Value::StrictNum(t1, NumericValue::Float(a * b)),
+                    (NumericValue::Int(a), NumericValue::Int(b)) => Value::StrictNum(t1, NumericValue::Int(a * b)),
+                    (NumericValue::Uint(a), NumericValue::Uint(b)) => Value::StrictNum(t1, NumericValue::Uint(a * b)),
+                    _ => Value::Nil,
+                }
+            }
             _ => Value::Nil,
         }
     }
@@ -232,6 +301,14 @@ impl std::ops::Div for Value {
     fn div(self, rhs: Self) -> Self::Output {
         match (self, rhs) {
             (Value::Num(a), Value::Num(b)) => Value::Num(a / b),
+            (Value::StrictNum(t1, v1), Value::StrictNum(t2, v2)) if t1 == t2 => {
+                match (v1, v2) {
+                    (NumericValue::Float(a), NumericValue::Float(b)) => Value::StrictNum(t1, NumericValue::Float(a / b)),
+                    (NumericValue::Int(a), NumericValue::Int(b)) => Value::StrictNum(t1, NumericValue::Int(a / b)),
+                    (NumericValue::Uint(a), NumericValue::Uint(b)) => Value::StrictNum(t1, NumericValue::Uint(a / b)),
+                    _ => Value::Nil,
+                }
+            }
             _ => Value::Nil,
         }
     }

@@ -36,6 +36,7 @@ impl fmt::Display for Token {
 #[derive(Debug, Clone, PartialEq)]
 pub enum TokenType {
     Number(f64),
+    StrictNumber(String, String),
     Str(String),
     LParen,
     RParen,
@@ -57,6 +58,7 @@ impl fmt::Display for TokenType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Number(n) => write!(f,"{n}"),
+            Self::StrictNumber(n, s) => write!(f, "{n}{s}"),
             Self::Str(s) => write!(f, "\"{s}\""),
             Self::LParen => write!(f,"("),
             Self::RParen => write!(f,")"),
@@ -201,6 +203,22 @@ impl Iterator for Lexer {
                     } else {
                         break;
                     }
+                }
+
+                let mut suffix = String::new();
+                while self.pos < self.text.len() {
+                    let next_slice = &self.text[self.pos..];
+                    let next_ch = next_slice.chars().next().unwrap();
+                    if next_ch.is_alphanumeric() {
+                        suffix.push(next_ch);
+                        advance(self, next_ch.len_utf8());
+                    } else {
+                        break;
+                    }
+                }
+
+                if !suffix.is_empty() {
+                    return mount_token(TokenType::StrictNumber(buf, suffix));
                 }
 
                 match buf.parse::<f64>() {

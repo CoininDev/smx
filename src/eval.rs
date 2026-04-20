@@ -1,8 +1,10 @@
-use crate::{ast::*, builtin::*, value::*, error::{*, EvalErrorType::*}, io::*};
+use crate::{ast::{*, NumericType}, builtin::*, value::*, error::{*, EvalErrorType::*}, io::*};
 use im::HashMap;
 use im::hashmap;
 use im::vector;
 use ordered_float::NotNan;
+use std::str::FromStr;
+use num_bigint::{BigInt, BigUint};
 
 macro_rules! eval_error {
     ($err: expr) => {
@@ -72,12 +74,16 @@ pub fn eval_assign_imut(a: Assign, amb: &Ambient) -> EvalResult<Ambient> {
     let pat = eval_pattern(a.0)?;
     
     let mut amb2 = amb.clone();
+    let mut added_resources = vec![];
     for res in a.1.clone() {
-        match amb2.rsrcs.get(&res) {
-            _ if is_builtin_res(res.as_str()) => amb2.vars.insert(res.clone(), Value::Builtin(res.into())),
-            Some(m) => amb2.vars.insert(res, m.clone()),
-            _ => return Err(eval_error!(VariableDoesNotExists(res))),
-        };
+        if !amb2.vars.contains_key(&res) {
+            added_resources.push(res.clone());
+            match amb2.rsrcs.get(&res) {
+                _ if is_builtin_res(res.as_str()) => amb2.vars.insert(res.clone(), Value::Builtin(res.into())),
+                Some(m) => amb2.vars.insert(res, m.clone()),
+                _ => return Err(eval_error!(VariableDoesNotExists(res))),
+            };
+        }
     }
 
     let value = eval_expr(a.2, &mut amb2).map_err(|e| EvalError{
@@ -85,7 +91,7 @@ pub fn eval_assign_imut(a: Assign, amb: &Ambient) -> EvalResult<Ambient> {
         assign: Some(pat.to_string())
     })?;
 
-    for res in a.1 {
+    for res in added_resources {
         amb2.vars.remove(&res);
     }
     
@@ -105,20 +111,34 @@ pub fn eval_assign(a: Assign, amb: &mut Ambient) -> EvalResult<()> {
     let pat = eval_pattern(a.0)?;
     
     let mut amb2 = amb.clone();
+    let mut added_resources = vec![];
     for res in a.1.clone() {
-        match amb2.rsrcs.get(&res) {
-            _ if is_builtin_res(res.as_str()) => amb2.vars.insert(res.clone(), Value::Builtin(res.into())),
-            Some(m) => amb2.vars.insert(res, m.clone()),
-            _ => return Err(eval_error!(VariableDoesNotExists(res))),
-        };
+        if !amb2.vars.contains_key(&res) {
+            added_resources.push(res.clone());
+            match amb2.rsrcs.get(&res) {
+                _ if is_builtin_res(res.as_str()) => amb2.vars.insert(res.clone(), Value::Builtin(res.into())),
+                Some(m) => amb2.vars.insert(res, m.clone()),
+                _ => return Err(eval_error!(VariableDoesNotExists(res))),
+            };
+        }
     }
 
-    let value = eval_expr(a.2, &mut amb2).map_err(|e| EvalError{
+    let mut value = eval_expr(a.2, &mut amb2).map_err(|e| EvalError{
         errtype: e.errtype, 
         assign: Some(pat.to_string())
     })?;
 
-    for res in a.1 {
+    // Propagation of resources to the lambda
+    if let Value::Lambda(p, b, e, mut r) = value {
+        for res in &a.1 {
+            if !r.contains(res) {
+                r.push(res.clone());
+            }
+        }
+        value = Value::Lambda(p, b, e, r);
+    }
+
+    for res in added_resources {
         amb2.vars.remove(&res);
     }
     
@@ -178,6 +198,20 @@ pub fn eval_expr(e: Expression, amb: &mut Ambient) -> EvalResult<Value> {
             }
         },
         Expression::Num(i)    => Ok(Value::Num(i)),
+        Expression::StrictNum(t, s) => {
+            let val = match t {
+                NumericType::F8 | NumericType::F16 | NumericType::F32 | NumericType::F64 | NumericType::F128 | NumericType::F256 => {
+                    NumericValue::Float(NotNan::new(s.parse::<f64>().map_err(|e| eval_error!(GenericError(e.to_string())))?).unwrap())
+                }
+                NumericType::I8 | NumericType::I16 | NumericType::I32 | NumericType::I64 | NumericType::I128 | NumericType::I256 => {
+                    NumericValue::Int(s.parse::<BigInt>().map_err(|e| eval_error!(GenericError(e.to_string())))?)
+                }
+                NumericType::U8 | NumericType::U16 | NumericType::U32 | NumericType::U64 | NumericType::U128 | NumericType::U256 => {
+                    NumericValue::Uint(s.parse::<BigUint>().map_err(|e| eval_error!(GenericError(e.to_string())))?)
+                }
+            };
+            Ok(Value::StrictNum(t, val))
+        }
         Expression::Str(s)    => Ok(Value::Str(s)),
         Expression::Nil       => Ok(Value::Nil),
         Expression::Frozen(m) => Ok(Value::Frozen(*m)),
@@ -193,9 +227,15 @@ pub fn eval_expr(e: Expression, amb: &mut Ambient) -> EvalResult<Value> {
         } 
         Expression::Bool(b)   => Ok(Value::Bool(b)),
         Expression::Operation(op, exprs) => eval_operation(op, exprs, amb),
-        Expression::Lambda(param, body) => Ok(Value::Lambda(
-                eval_pattern(*param)?, *body, amb.vars.clone())
-        ),
+        Expression::Lambda(param, body, resources) => {
+            let mut cap_env = amb.vars.clone();
+            for r in &resources {
+                cap_env.remove(r);
+            }
+            Ok(Value::Lambda(
+                eval_pattern(*param)?, *body, cap_env, resources)
+            )
+        },
 
         Expression::Application(f, x) => apply(
             eval_expr(*f, amb)?, 
@@ -232,7 +272,13 @@ pub fn eval_pattern_type(ty: &Expression) -> EvalResult<PatternType> {
             "env"     => Ok(PatternType::Environment),
             "frozen"  => Ok(PatternType::Frozen),
             "fn"      => Ok(PatternType::Lambda),
-            other     => Err(eval_error!(PatternError(format!("unknown type name: {other}")))),
+            other     => {
+                if let Ok(t) = NumericType::from_str(other) {
+                    Ok(PatternType::StrictNumber(t))
+                } else {
+                    Err(eval_error!(PatternError(format!("unknown type name: {other}"))))
+                }
+            }
         }
         Expression::ListType(Some(box x)) => {
             let list: Vec<_> = listing(x.clone()).map_err(|e| eval_error!(PatternError(e)))?.into_iter().collect();
@@ -288,8 +334,9 @@ pub fn eval_pattern_pair(pat: Pattern, val: Value) -> Result<Environment, EvalEr
             (PatternType::Bool, Value::Bool(_)) => Ok(()),
             (PatternType::Environment, Value::Environment(_)) => Ok(()),
             (PatternType::Number, Value::Num(_)) => Ok(()),
+            (PatternType::StrictNumber(t), Value::StrictNum(vt, _)) if t == vt => Ok(()),
             (PatternType::Frozen, Value::Frozen(_)) => Ok(()),
-            (PatternType::Lambda, Value::Lambda(_, _, _)) | (PatternType::Lambda, Value::Builtin(_)) => Ok(()),
+            (PatternType::Lambda, Value::Lambda(_, _, _, _)) | (PatternType::Lambda, Value::Builtin(_)) => Ok(()),
             (PatternType::List(types), _) => {
                 if let Value::Nil = value {
                     return Ok(());
@@ -383,11 +430,10 @@ pub fn apply_builtin(x: &str, arg: Value, amb: &mut Ambient) -> EvalResult<Value
 
     Err(eval_error!(VariableDoesNotExists(x.to_string())))
 }
-
 pub fn apply(func: Value, arg: Value, amb: &mut Ambient) -> EvalResult<Value> {
     let func_clone = func.clone();
-    let (param, body, cap_env) = match func {
-        Value::Lambda(param, body, cap_env) => (param, body, cap_env),
+    let (param, body, cap_env, resources) = match func {
+        Value::Lambda(param, body, cap_env, resources) => (param, body, cap_env, resources),
         Value::Builtin(x) => return apply_builtin(&x, arg, amb),
         _ => return Err(eval_error!(NonFunctionApplication(func))),
     };
@@ -395,6 +441,13 @@ pub fn apply(func: Value, arg: Value, amb: &mut Ambient) -> EvalResult<Value> {
     let env_pat = env_pat.union(hashmap!{"__self".into() => func_clone});
     
     let mut vars2 = cap_env;
+    for r in resources {
+        if let Some(val) = amb.vars.get(&r) {
+            vars2.insert(r.clone(), val.clone());
+        } else {
+            return Err(eval_error!(ResourceNotProvided(r)));
+        }
+    }
     vars2.extend(env_pat);
     
     let mut new_amb = Ambient {
@@ -434,23 +487,57 @@ pub fn eval_operation(op: String, exprs: Vec<Expression>, amb: &mut Ambient)
         },
         "+" => match exprs.as_slice() {
             [expr] => eval(expr),
-            [left, right] => Ok(eval(left)? + eval(right)?),
+            [left, right] => {
+                let l = eval(left)?;
+                let r = eval(right)?;
+                match (&l, &r) {
+                    (Value::StrictNum(t1, _), Value::StrictNum(t2, _)) if t1 != t2 => {
+                        Err(eval_error!(GenericError(format!("Strict type mismatch: {:?} and {:?}", t1, t2))))
+                    }
+                    _ => Ok(l + r)
+                }
+            },
             _ => Err(eval_error!(InvalidSizeOfArgsFor("+".to_string()))),
         },
         "-" => match exprs.as_slice() {
             [expr] => Ok(-(eval(expr)?)),
-            [left, right] => Ok(eval(left)? - eval(right)?),
+            [left, right] => {
+                let l = eval(left)?;
+                let r = eval(right)?;
+                match (&l, &r) {
+                    (Value::StrictNum(t1, _), Value::StrictNum(t2, _)) if t1 != t2 => {
+                        Err(eval_error!(GenericError(format!("Strict type mismatch: {:?} and {:?}", t1, t2))))
+                    }
+                    _ => Ok(l - r)
+                }
+            },
             _ => Err(eval_error!(InvalidSizeOfArgsFor("-".to_string()))),
         },
         "*" => match exprs.as_slice() {
-            [left, right] => Ok(eval(left)? * eval(right)?),
+            [left, right] => {
+                let l = eval(left)?;
+                let r = eval(right)?;
+                match (&l, &r) {
+                    (Value::StrictNum(t1, _), Value::StrictNum(t2, _)) if t1 != t2 => {
+                        Err(eval_error!(GenericError(format!("Strict type mismatch: {:?} and {:?}", t1, t2))))
+                    }
+                    _ => Ok(l * r)
+                }
+            },
             _ => Err(eval_error!(InvalidSizeOfArgsFor("*".to_string()))),
         },
         "/" => match exprs.as_slice() {
-            [left, right] => match eval(right)? {
-                Value::Nil => Err(eval_error!(ZeroDivisor)),
-                Value::Num(x) if x == 0. => Err(eval_error!(ZeroDivisor)),
-                otherwise => Ok(eval(left)? / otherwise),
+            [left, right] => {
+                let l = eval(left)?;
+                let r = eval(right)?;
+                match (&l, &r) {
+                    (_, Value::Nil) => Err(eval_error!(ZeroDivisor)),
+                    (_, Value::Num(x)) if *x == 0. => Err(eval_error!(ZeroDivisor)),
+                    (Value::StrictNum(t1, _), Value::StrictNum(t2, _)) if t1 != t2 => {
+                        Err(eval_error!(GenericError(format!("Strict type mismatch: {:?} and {:?}", t1, t2))))
+                    }
+                    _ => Ok(l / r)
+                }
             },
             _ => Err(eval_error!(InvalidSizeOfArgsFor("/".to_string()))),
         },
@@ -541,7 +628,7 @@ pub fn eval_operation(op: String, exprs: Vec<Expression>, amb: &mut Ambient)
         }
         ":" => match exprs.as_slice() {
             [left, right] => match (eval(left)?, eval(right)?) {
-                (a, Value::Lambda(_, _, _)) => apply(eval(right)?, a, amb),
+                (a, Value::Lambda(_, _, _, _)) => apply(eval(right)?, a, amb),
                 (a, Value::Builtin(_)) => apply(eval(right)?, a, amb),
                 _ => Err(eval_error!(WrongTypes(":".to_string(), 
                             PatternType::List(vec![PatternType::Lambda]),
