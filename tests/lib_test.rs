@@ -1,5 +1,3 @@
-use smx::smx_val;
-
 #[test]
 fn test_lib_run_file() {
     // We can't easily run a file that depends on stdlib without setting up the environment,
@@ -15,14 +13,15 @@ fn test_lib_run_file() {
 
 #[test]
 fn test_lib_eval() {
-    let mut amb = smx::value::Ambient::default();
+    let mut amb = smx::val!(ambient);
     let res = smx::eval("1 + 2", &mut amb).unwrap();
     assert_eq!(res.to_string(), "3");
     
     // Teste com variáveis (se o parser suportasse assign no eval seria ótimo, 
     // mas aqui testamos apenas a avaliação de expressão em um ambiente)
     amb.vars.insert("x".into(), 10.into());
-    amb.vars.insert("y".into(), smx_val!(5));
-    let res2 = smx::eval("x + y", &mut amb).unwrap();
-    assert_eq!(res2, smx_val!(15));
+    amb.vars.insert("y".into(), smx::val!(5));
+    amb.vars.insert("IO".into(), smx::val!(IO));
+    let res2 = smx::eval("IO.wait 2 :\\_. x + y", &mut amb).unwrap();
+    assert_eq!(res2, smx::val!(15));
 }

@@ -53,9 +53,12 @@ pub fn tokenize(s: &str) -> Vec<Token> {
 }
 
 #[macro_export]
-macro_rules! smx_val {
+macro_rules! val {
     (nil) => { $crate::value::Value::Nil };
+    () => { $crate::value::Value::Nil };
     (true) => { $crate::value::Value::Bool(true) };
     (false) => { $crate::value::Value::Bool(false) };
+    (IO) => { $crate::value::Value::Builtin("IO".into()) };
+    (ambient) => { $crate::value::Ambient::default() };
     ($n:expr) => { $crate::value::Value::from($n) };
 }
