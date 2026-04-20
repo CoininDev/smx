@@ -1,2 +1,0 @@
-f = \x @{IO}. IO.print x;
-result @{IO} = f "hello lambda";

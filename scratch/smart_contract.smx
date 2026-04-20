@@ -1,0 +1,29 @@
+resource R = 0;
+resource W = 1;
+
+contract = { 
+    name = "zombieFactory"; 
+    private = { 
+        dnaDigits ~ number = 16; 
+        dnaModulus ~ number = 10 ** dnaDigits; 
+        
+        createZombie @{R, W} = \name ~ string. \dna ~ u256. 
+            W.zombies (lists.push (R.zombies) {name = name; dna = dna;}); 
+        
+        generateRandomDna @{R} = \str ~ string. str 
+        :   hash.keccak256 
+        :,  'u256 
+        :   convert 
+        :   \x. x % R.dnaModulus 
+        ; 
+    }; 
+    
+    public = { 
+        zombies ~ [{name ~ string; dna ~ u256;}] = nil; 
+        
+        createRandomZombie @{R} = \str ~ string. str 
+        :   R.generateRandomDna 
+        :   R.createZombie str 
+        ; 
+    }; 
+};

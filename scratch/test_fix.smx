@@ -1,6 +1,0 @@
-_ @{IO} = IO.import { file = "stdlib/logic.amx"; };
-add = \a. \b. a + b;
-sqrt = \n. n ** 0.5;
-
-result = 1 : add 3 : sqrt :, 3;
-// expected: result = (2, 3)
