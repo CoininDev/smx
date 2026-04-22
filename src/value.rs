@@ -46,7 +46,7 @@ impl Ambient {
 }
 
 pub trait IoObject {
-    fn redirect(&self, function: Vec<String>, value: Value, amb: &mut Ambient) -> EvalResult<Value>;
+    fn redirect(&mut self, function: Vec<String>, value: Value, amb: &mut Ambient) -> EvalResult<Value>;
     fn name(&self) -> &str;
 }
 
