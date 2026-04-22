@@ -1,5 +1,5 @@
 use std::{fmt, error::Error};
-use crate::value::*;
+use crate::{eval::EvalResult, value::*};
 
 // =======================================
 // =========== Lexer Error ===============
@@ -113,5 +113,16 @@ impl fmt::Display for EvalErrorType {
         }
     }
 }
-
 impl Error for EvalError {}
+
+
+// Smooth error conversion
+pub trait MapEvalError<T> {
+    fn map_eval_error(self) -> EvalResult<T>;
+}
+
+impl<T, E: ToString> MapEvalError<T> for Result<T, E> {
+    fn map_eval_error(self) -> EvalResult<T> {
+        self.map_err(|e| EvalError::new(EvalErrorType::GenericError(e.to_string())))
+    }
+}
