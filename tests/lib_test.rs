@@ -1,4 +1,5 @@
 use std::rc::Rc;
+use std::cell::RefCell;
 
 use smx::value::IoObject;
 use smx::eval_error;
@@ -36,11 +37,11 @@ fn test_lib_eval() {
 #[test]
 fn assignment_test() {
     let mut amb = smx::val!(ambient);
-    let res = smx::eval("a = 5 + 3", &mut amb).unwrap();
+    let _ = smx::eval("a = 5 + 3", &mut amb).unwrap();
     assert!(amb.vars.contains_key("a") && amb.vars["a"] == smx::val!(8));
     
     // Teste de reatribuição
-    let res2 = smx::eval("a = 5 * 2", &mut amb).unwrap();
+    let _ = smx::eval("a = 5 * 2", &mut amb).unwrap();
     assert!(amb.vars.contains_key("a") && amb.vars["a"] == smx::val!(10));
 }
 
@@ -51,7 +52,7 @@ impl IoObject for ExampleIo {
         "E"
     }
 
-    fn redirect(&self, function: Vec<String>, value: smx::value::Value, amb: &mut smx::value::Ambient) -> smx::eval::EvalResult<smx::value::Value> {
+    fn redirect(&mut self, function: Vec<String>, value: smx::value::Value, _amb: &mut smx::value::Ambient) -> smx::eval::EvalResult<smx::value::Value> {
         if function == ["wait"] {
             if let smx::value::Value::Num(n) = value {
                 std::thread::sleep(std::time::Duration::from_secs_f64(*n));
@@ -68,7 +69,7 @@ impl IoObject for ExampleIo {
 #[test]
 fn test_io_object() {
     let mut amb = smx::val!(ambient);
-    amb.add_custom_resource(Rc::new(ExampleIo));
+    amb.add_custom_resource(Rc::new(RefCell::new(ExampleIo)));
     
     let start = std::time::Instant::now();
     let res = smx::eval("_ @{E} = E.wait 1", &mut amb).unwrap();

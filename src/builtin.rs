@@ -3,7 +3,7 @@ use std::str::FromStr;
 use strum::IntoEnumIterator;
 use num_traits::ToPrimitive;
 use ordered_float::NotNan;
-use num_bigint::{BigInt, BigUint, ToBigInt, ToBigUint};
+use num_bigint::{BigInt, BigUint, ToBigInt};
 use crate::{
     ast::*,
     error::EvalErrorType::*,

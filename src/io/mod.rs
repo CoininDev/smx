@@ -8,8 +8,7 @@ use crate::{
 
 use im::hashmap;
 use rand::RngExt;
-use std::io::Write;
-use std::time::Instant;
+use std::io::Write;use std::cell::RefCell;use std::time::Instant;
 use std::time::Duration;
 use std::thread::sleep;
 
@@ -23,7 +22,7 @@ macro_rules! eval_error {
 }
 
 pub struct IoResource {
-    pub custom_resources: Vec<std::rc::Rc<dyn IoObject>>,
+    pub custom_resources: Vec<std::rc::Rc<RefCell<dyn IoObject>>>,
 }
 
 impl Default for IoResource {
@@ -32,7 +31,7 @@ impl Default for IoResource {
     }
 }
 impl IoResource {
-    pub fn redirect(&self, function: String, value: Value, amb: &mut Ambient) -> EvalResult<Value> {
+    pub fn redirect(&mut self, function: String, value: Value, amb: &mut Ambient) -> EvalResult<Value> {
         match function.as_str() {
             "print" => self.print(value),
             "read" => self.read(value),
@@ -54,8 +53,8 @@ impl IoResource {
         value: Value,
         amb: &mut Ambient,
     ) -> EvalResult<Value> {
-        fn n(a: impl IoObject + 'static) -> std::rc::Rc<dyn IoObject> {
-            std::rc::Rc::new(a)
+        fn n(a: impl IoObject + 'static) -> std::rc::Rc<RefCell<dyn IoObject>> {
+            std::rc::Rc::new(RefCell::new(a))
         }
 
         let mut all_objects = self.custom_resources.clone();
@@ -63,9 +62,10 @@ impl IoResource {
 
         all_objects
             .into_iter()
-            .filter(|x| obj == x.name())
+            .filter(|x| obj == x.borrow().name())
             .next()
             .ok_or(eval_error!(VariableDoesNotExists(obj)))?
+            .borrow_mut()
             .redirect(redirect, value, amb)
     }
 

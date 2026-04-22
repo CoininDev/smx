@@ -12,7 +12,7 @@ macro_rules! eval_error {
 
 pub struct FileIoObj;
 impl IoObject for FileIoObj {
-    fn redirect(&self, function:Vec<String>, value: Value, _: &mut Ambient)
+    fn redirect(&mut self, function:Vec<String>, value: Value, _: &mut Ambient)
         -> EvalResult<Value>
     {
         assert_eq!(1, function.len());

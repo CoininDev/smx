@@ -186,7 +186,7 @@ pub fn eval_expr(e: Expression, amb: &mut Ambient) -> EvalResult<Value> {
                     }
 
                     // Check if v[0] is a custom resource or builtin that should be qualified
-                    if let Some(Value::Builtin(name)) = amb.vars.get(&v[0]) {
+                    if let Some(Value::Builtin(_)) = amb.vars.get(&v[0]) {
                         return Ok(Value::Builtin(v.join(".")));
                     }
 
@@ -536,7 +536,7 @@ pub fn apply_builtin(x: &str, arg: Value, amb: &mut Ambient) -> EvalResult<Value
     if let Some(prefix) = x.split('.').next() {
         if prefix == "IO" && io_resource_imported {
             let fnames: Vec<String> = x.split('.').map(|f| f.to_string()).collect();
-            let io = IoResource { custom_resources: amb.custom_resources.clone() };
+            let mut io = IoResource { custom_resources: amb.custom_resources.clone() };
             if fnames.len() == 2 {
                 return io.redirect(fnames.last().unwrap().to_string(), arg, amb);
             }
@@ -544,10 +544,10 @@ pub fn apply_builtin(x: &str, arg: Value, amb: &mut Ambient) -> EvalResult<Value
         } else {
             // Check custom resources
             let custom = amb.custom_resources.clone();
-            for res in &custom {
-                if res.name() == prefix {
+            for res in custom {
+                if res.borrow().name() == prefix {
                     let fnames: Vec<String> = x.split('.').skip(1).map(|s| s.to_string()).collect();
-                    return res.redirect(fnames, arg, amb);
+                    return res.borrow_mut().redirect(fnames, arg, amb);
                 }
             }
         }

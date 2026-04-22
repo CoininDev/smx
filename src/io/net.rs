@@ -14,6 +14,7 @@ macro_rules! eval_error {
     }
 }
 
+#[allow(dead_code)]
 enum NetNativeObj {
     Tcp {val: TcpStream, receive: Value},
     Test,
@@ -21,7 +22,7 @@ enum NetNativeObj {
 
 pub struct NetIoObj;
 impl IoObject for NetIoObj {
-    fn redirect(&self, function:Vec<String>, value: Value, amb: &mut Ambient)
+    fn redirect(&mut self, function:Vec<String>, value: Value, amb: &mut Ambient)
         -> EvalResult<Value>
     {
         assert_eq!(1, function.len());
@@ -101,7 +102,7 @@ impl NetIoObj {
                 let mut a2 = a1.borrow_mut();
                 loop {
                     match &mut *a2 {
-                        NetNativeObj::Tcp {val: v, receive: r} => {
+                        NetNativeObj::Tcp {val: _, receive: _} => {
                             println!("WORK IN PROGRESS;");
                         }
                         NetNativeObj::Test => print!("WORK IN PROGRESS;"),
