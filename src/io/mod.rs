@@ -22,13 +22,15 @@ macro_rules! eval_error {
     };
 }
 
-pub trait IoObject {
-    fn redirect(&self, function: Vec<String>, value: Value, amb: &mut Ambient)
--> EvalResult<Value>;
-    fn name(&self) -> &str;
+pub struct IoResource {
+    pub custom_resources: Vec<std::rc::Rc<dyn IoObject>>,
 }
 
-pub struct IoResource;
+impl Default for IoResource {
+    fn default() -> Self {
+        Self { custom_resources: vec![] }
+    }
+}
 impl IoResource {
     pub fn redirect(&self, function: String, value: Value, amb: &mut Ambient) -> EvalResult<Value> {
         match function.as_str() {
@@ -52,11 +54,14 @@ impl IoResource {
         value: Value,
         amb: &mut Ambient,
     ) -> EvalResult<Value> {
-        fn n(a: impl IoObject + 'static) -> Box<dyn IoObject> {
-            Box::new(a)
+        fn n(a: impl IoObject + 'static) -> std::rc::Rc<dyn IoObject> {
+            std::rc::Rc::new(a)
         }
 
-        vec![n(file::FileIoObj), n(net::NetIoObj)]
+        let mut all_objects = self.custom_resources.clone();
+        all_objects.extend(vec![n(file::FileIoObj), n(net::NetIoObj)]);
+
+        all_objects
             .into_iter()
             .filter(|x| obj == x.name())
             .next()
@@ -344,6 +349,7 @@ pub fn util_eval_expr_str(input: &str, amb: &Ambient) -> Result<Value, String> {
             vars: amb.vars.clone(),
             rsrcs: amb.rsrcs.clone(),
             natives: vec![],
+            custom_resources: amb.custom_resources.clone(),
         },
     )
         .map_err(|e| e.to_string())

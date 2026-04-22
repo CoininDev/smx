@@ -25,7 +25,7 @@ pub fn eval_program_ambient(tree: Program) -> EvalResult<Ambient> {
         eval_resource(res, &mut rsrcs)?;
     }
 
-    let mut amb = Ambient{vars: HashMap::new(), rsrcs, natives: vec![]};
+    let mut amb = Ambient{vars: HashMap::new(), rsrcs, natives: vec![], custom_resources: vec![]};
     for assign in tree.body {
         eval_assign(assign, &mut amb)?;
     }
@@ -52,7 +52,7 @@ pub fn eval_resource(res: &Assign, resources: &mut Environment) -> EvalResult<()
     };
 
     
-    let mut amb = Ambient {vars: HashMap::new(), rsrcs: resources.clone(), natives:vec![]};
+    let mut amb = Ambient {vars: HashMap::new(), rsrcs: resources.clone(), natives:vec![], custom_resources: vec![]};
     for res in res.1.clone() {
         match resources.get(&res) {
             _ if is_builtin_res(res.as_str()) => amb.vars.insert(res.clone(), Value::Builtin(res.into())),
@@ -195,7 +195,8 @@ pub fn eval_expr(e: Expression, amb: &mut Ambient) -> EvalResult<Value> {
                     eval_expr(Expression::Var(v[1..].to_vec()), &mut Ambient{
                         vars: a, 
                         rsrcs: amb.rsrcs.clone(), 
-                        natives: amb.natives.clone()
+                        natives: amb.natives.clone(),
+                        custom_resources: amb.custom_resources.clone()
                     })
                 }
             }
@@ -526,13 +527,24 @@ pub fn apply_builtin(x: &str, arg: Value, amb: &mut Ambient) -> EvalResult<Value
         return ci.call(arg, amb);
     }
 
-    if x.split('.').next() == Some("IO") && io_resource_imported {
-        let fnames: Vec<String> = x.split('.').map(|f| f.to_string()).collect();
-        let io = IoResource;
-        if fnames.len() == 2 {
-            return io.redirect(fnames.last().unwrap().to_string(), arg, amb);
+    if let Some(prefix) = x.split('.').next() {
+        if prefix == "IO" && io_resource_imported {
+            let fnames: Vec<String> = x.split('.').map(|f| f.to_string()).collect();
+            let io = IoResource { custom_resources: amb.custom_resources.clone() };
+            if fnames.len() == 2 {
+                return io.redirect(fnames.last().unwrap().to_string(), arg, amb);
+            }
+            return io.objects(fnames[1].clone(), fnames[2..].to_vec(), arg, amb);
+        } else {
+            // Check custom resources
+            let custom = amb.custom_resources.clone();
+            for res in &custom {
+                if res.name() == prefix {
+                    let fnames: Vec<String> = x.split('.').skip(1).map(|s| s.to_string()).collect();
+                    return res.redirect(fnames, arg, amb);
+                }
+            }
         }
-        return io.objects(fnames[1].clone(), fnames[2..].to_vec(), arg, amb)
     }
 
     Err(eval_error!(VariableDoesNotExists(x.to_string())))
@@ -561,6 +573,7 @@ pub fn apply(func: Value, arg: Value, amb: &mut Ambient) -> EvalResult<Value> {
         vars: vars2.clone(),
         rsrcs: amb.rsrcs.clone(),
         natives: amb.natives.clone(),
+        custom_resources: amb.custom_resources.clone(),
     };
     
     let res = eval_expr(body, &mut new_amb);
@@ -752,7 +765,8 @@ pub fn eval_operation(op: String, exprs: Vec<Expression>, amb: &mut Ambient)
                     &mut Ambient {
                         vars: new_vars, 
                         rsrcs: amb.rsrcs.clone(), 
-                        natives: amb.natives.clone()
+                        natives: amb.natives.clone(),
+                        custom_resources: amb.custom_resources.clone()
                     }
                 )},
                 _ => Err(eval_error!(WrongTypes("::".to_string(), 

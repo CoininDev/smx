@@ -6,11 +6,12 @@ use num_bigint::{BigInt, BigUint};
 use num_traits::ToPrimitive;
 use strum_macros::EnumString;
 
-#[derive(Debug, Default, Clone)]
+#[derive(Default, Clone)]
 pub struct Ambient {
     pub vars: Environment,
     pub rsrcs: Environment,
     pub natives: Vec<Rc<dyn Any>>,
+    pub custom_resources: Vec<Rc<dyn IoObject>>,
 }
 
 impl Ambient {
@@ -18,6 +19,7 @@ impl Ambient {
         self.vars.extend(other.vars.clone());
         self.rsrcs.extend(other.rsrcs.clone());
         self.natives.extend(other.natives.clone());
+        self.custom_resources.extend(other.custom_resources.clone());
     }
 
     pub fn eject(&mut self, other: &Ambient) {
@@ -27,6 +29,7 @@ impl Ambient {
         for k in other.rsrcs.keys() {
             self.rsrcs.remove(k);
         }
+        // Note: not ejecting natives or custom_resources, as they might be shared
     }
 
     pub fn eject_vars(&mut self, vars: &Environment) {
@@ -34,6 +37,15 @@ impl Ambient {
             self.vars.remove(k);
         }
     }
+
+    pub fn add_custom_resource(&mut self, res: std::rc::Rc<dyn IoObject>) {
+        self.custom_resources.push(res);
+    }
+}
+
+pub trait IoObject {
+    fn redirect(&self, function: Vec<String>, value: Value, amb: &mut Ambient) -> EvalResult<Value>;
+    fn name(&self) -> &str;
 }
 
 
