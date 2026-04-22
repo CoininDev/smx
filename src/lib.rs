@@ -10,33 +10,70 @@ pub mod lexer;
 pub mod repl;
 
 use crate::{
-    ast::Parser,
-    lexer::{Lexer, Token},
-    eval::{eval_program, eval_expr},
-    value::{Value, Ambient},
+    ast::Parser, eval::{eval_assign, eval_expr, eval_program, eval_resource}, lexer::{Lexer, Token}, value::{Ambient, Value}
 };
 
-pub fn eval(code: &str, amb: &mut Ambient) -> Result<Value, String> {
+pub fn eval(code: &str, mut amb: &mut Ambient) -> Result<Value, String> {
     let tk = tokenize(code);
     let mut parser = Parser::new(tk);
-    let expr = parser.parse_expr_pratt(0.0)
-        .map_err(|e| format!("Parser error: {e}"))?;
+    
+    let assign = parser.parse_assign();
+    let assign_pos = parser.pos;
+    parser.reset();
+    let expr = parser.parse_expr_pratt(0.);
+    let expr_pos = parser.pos;
 
-    eval_expr(expr, amb)
-        .map_err(|e| format!("Evaluation Error: {e:#?}"))
+    match (assign, expr) {
+        (Ok(assign), _) => {
+            #[cfg(debug_assertions)]
+            println!("(debug)\tAST: {assign:#?}");
+
+            // eval_resource actively detects and ignores other assigns
+            if let Err(e) = eval_resource(&assign, &mut amb.rsrcs) {
+                return Err(e.to_string());
+            }
+            
+            // eval_assign actively detects and ignores resources
+            if let Err(e) = eval_assign(assign, &mut amb) {
+                eprintln!("Eval Error: {e}");
+                return Err(e.to_string());
+            }
+            return Ok(val!("Ok"));
+        }
+
+        (Err(_a), Ok(expr)) => {
+            // println!("Assign Err: {}", _a);
+            #[cfg(debug_assertions)]
+            println!("(debug)\tAST: {expr:#?}");
+            let res = match eval_expr(expr, &mut amb) {
+                Ok(r) => r,
+                Err(e) => {
+                    eprintln!("Eval Error: {e}");
+                    return Err(e.to_string());
+                }
+            };
+            println!("= {res}");
+            return Err("Evaluation failed".into());
+        }
+
+        (Err(a), Err(b)) => {
+            // println!("Assign Err: {}", a);
+            if assign_pos >= expr_pos {
+                println!("Assign Err: {}", a);
+            } else {
+                println!("Expr Err: {}", b);
+            }
+        }
+    }
+    Err("Parsing failed".into())
 }
+
 
 pub fn eval_file(path: &str, amb: &mut Ambient) -> Result<Value, String> {
     let content = std::fs::read_to_string(path)
         .map_err(|e| format!("Error reading file {path}: {e}"))?;
 
-    let tk = tokenize(&content);
-    let mut parser = Parser::new(tk);
-    let expr = parser.parse_expr_pratt(0.0)
-        .map_err(|e| format!("Parser error: {e}"))?;
-
-    eval_expr(expr, amb)
-        .map_err(|e| format!("Evaluation Error: {e:#?}"))
+    eval(&content, amb)
 }
 
 pub fn run_file(path: &str) -> Result<Value, String> {

@@ -25,3 +25,14 @@ fn test_lib_eval() {
     let res2 = smx::eval("IO.wait 2 :\\_. x + y", &mut amb).unwrap();
     assert_eq!(res2, smx::val!(15));
 }
+
+#[test]
+fn assignment_test() {
+    let mut amb = smx::val!(ambient);
+    let res = smx::eval("a = 5 + 3", &mut amb).unwrap();
+    assert!(amb.vars.contains_key("a") && amb.vars["a"] == smx::val!(8));
+    
+    // Teste de reatribuição
+    let res2 = smx::eval("a = 5 * 2", &mut amb).unwrap();
+    assert!(amb.vars.contains_key("a") && amb.vars["a"] == smx::val!(10));
+}
