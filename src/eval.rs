@@ -6,6 +6,7 @@ use ordered_float::NotNan;
 use std::str::FromStr;
 use num_bigint::{BigInt, BigUint};
 
+#[macro_export]
 macro_rules! eval_error {
     ($err: expr) => {
         EvalError::new($err)
@@ -181,6 +182,11 @@ pub fn eval_expr(e: Expression, amb: &mut Ambient) -> EvalResult<Value> {
                 },
                 _ => {
                     if is_builtin_res(&v[0]) {
+                        return Ok(Value::Builtin(v.join(".")));
+                    }
+
+                    // Check if v[0] is a custom resource or builtin that should be qualified
+                    if let Some(Value::Builtin(name)) = amb.vars.get(&v[0]) {
                         return Ok(Value::Builtin(v.join(".")));
                     }
 

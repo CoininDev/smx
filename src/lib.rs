@@ -38,7 +38,7 @@ pub fn eval(code: &str, mut amb: &mut Ambient) -> Result<Value, String> {
                 eprintln!("Eval Error: {e}");
                 return Err(e.to_string());
             }
-            return Ok(val!("Ok"));
+            return Ok(val!());
         }
 
         (Err(_a), Ok(expr)) => {
@@ -53,7 +53,7 @@ pub fn eval(code: &str, mut amb: &mut Ambient) -> Result<Value, String> {
                 }
             };
             println!("= {res}");
-            return Err("Evaluation failed".into());
+            return Ok(res);
         }
 
         (Err(a), Err(b)) => {

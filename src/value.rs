@@ -39,7 +39,9 @@ impl Ambient {
     }
 
     pub fn add_custom_resource(&mut self, res: std::rc::Rc<dyn IoObject>) {
-        self.custom_resources.push(res);
+        let name = res.name().to_string();
+        self.custom_resources.push(res.clone());
+        self.rsrcs.insert(name.clone(), Value::Builtin(name.clone())); 
     }
 }
 
