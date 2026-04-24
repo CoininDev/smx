@@ -1,0 +1,69 @@
+// SMX Syntactic Sugar Examples: let and if
+
+// ============ LET SYNTAX SUGAR ============
+// Syntax: let <assignments> in <expr>
+// Desugars to: {<assignments>}::'(<expr>)
+//
+// Creates a local environment with assignments and evaluates an expression within it.
+
+example_let_basic = let
+    x = 10;
+    y = 20;
+in
+    x + y;
+
+example_let_multiple = let
+    a = 1;
+    b = 2;
+    c = 3;
+    d = a + b + c;
+in
+    d * 2;
+
+// ============ IF SYNTAX SUGAR ============
+// Syntax: if <cond> then <expr1> else <expr2>
+// Desugars to: eval (<cond> ? '(<expr1>), '(<expr2>))
+//
+// Evaluates condition and executes appropriate branch (lazy evaluation via freezing).
+
+example_if_basic = if 5 > 3
+    then "five is greater"
+    else "five is not greater";
+
+example_if_numbers = if 10 == 10
+    then 100
+    else 200;
+
+// ============ COMBINING LET AND IF ============
+// Use both together for powerful control flow
+
+fibonacci = \n. if n <= 1
+    then n
+    else let
+        a = fibonacci (n - 1);
+        b = fibonacci (n - 2);
+    in
+        a + b;
+
+factorial = \n. if n == 0
+    then 1
+    else n * factorial(n - 1);
+
+// ============ IF WITH COMPLEX EXPRESSIONS ============
+
+result_status = let
+    code = 200;
+in
+    if code == 200
+        then {status = "ok"; message = "success"}
+        else {status = "error"; message = "failed"};
+
+// ============ NESTED STRUCTURES ============
+
+nested_example = let
+    x = 5;
+    y = if x > 3 then x * 2 else x + 2;
+in
+    if y > 5
+        then {result = y; category = "high"}
+        else {result = y; category = "low"};

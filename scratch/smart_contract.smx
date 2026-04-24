@@ -1,33 +1,36 @@
-// needed for testing only
-resource R = nil;
-resource W = nil;
-resource Ev = {register = \x.x;};
+contract = {
+  name = "note";
+  db_domain = "notes";
 
-contract = { 
-    name = "zombieFactory"; 
-    private = { 
-        event_NewZombie @{Ev} = Ev.register #'{zombieId; name ~ string; dna ~ u256;};
-        dnaDigits ~ number = 16; 
-        dnaModulus ~ number = 10 ** dnaDigits; 
-        
-        createZombie @{R, W, Ev} = \name ~ string. \dna ~ u256. 
-            W.zombies (lists.push (R.zombies) {name = name; dna = dna;})
-        :   Ev.emit 'NewZombie {zombieId = R.zombies:len; name = name; dna = dna;}; 
-        
-        generateRandomDna @{R} = \str ~ string. str 
-        :   hash.keccak256 
-        :,  'u256 
-        :   convert 
-        :   \x. x % R.dnaModulus 
-        ; 
-    }; 
-    
-    public = { 
-        zombies ~ [{name ~ string; dna ~ u256;}] = nil; 
-        
-        createRandomZombie @{R, W} = \str ~ string. str 
-        :   R.generateRandomDna 
-        :   R.createZombie str 
-        ; 
-    }; 
-};
+  funcs @{DB} = 
+    "create" -> (\msg ~string @{DB}.
+        let
+            // "$" pode significar escopo carregado da própria transação.
+            count = DB.read "$/notes/count", 'number: convert: add 1;
+            fmt_count = string.number_format {number = count; left = 3; right = 0;};
+        in      
+            "$/notes/note" + fmt_count
+            : \k. DB.write k msg
+            :> DB.write ("notes/count", count)
+            :> {ok = true;}
+    ),
+    "update" -> (\id ~number, msg ~string @{DB}.
+        let
+            fmt_id = string.number_format {number = id; left = 3; right = 0;};
+            note_address = "$/notes/note" + fmt_id;
+        in
+            if DB.read note_address == nil 
+            then {ok = false; msg = "note" + fmt_id + " were not found.";}
+            else DB.write (note_address, msg) :> {ok = true;}
+    ),
+    "delete" -> (\id ~number @{DB}.
+        let
+            fmt_id = string.number_format {number = id; left = 3; right = 0;};
+            note_address = "$/notes/note" + fmt_id;
+        in
+            if DB.read note_address == nil 
+            then {ok = false; msg = "note" + fmt_id + " were not found.";}
+            else (DB.remove note_address :> {ok = true;})
+    )
+  ;
+}

@@ -92,6 +92,16 @@ pub enum Keyword {
     Nil,
     #[strum(to_string = "type")]
     Type,
+    #[strum(to_string = "let")]
+    Let,
+    #[strum(to_string = "in")]
+    In,
+    #[strum(to_string = "if")]
+    If,
+    #[strum(to_string = "then")]
+    Then,
+    #[strum(to_string = "else")]
+    Else,
 }
 
 impl FromStr for Keyword {
@@ -103,6 +113,11 @@ impl FromStr for Keyword {
             "false" => Ok(Keyword::False),
             "nil"   => Ok(Keyword::Nil),
             "type"  => Ok(Keyword::Type),
+            "let"   => Ok(Keyword::Let),
+            "in"    => Ok(Keyword::In),
+            "if"    => Ok(Keyword::If),
+            "then"  => Ok(Keyword::Then),
+            "else"  => Ok(Keyword::Else),
             _ => Err(()),
         }
    }

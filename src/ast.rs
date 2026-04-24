@@ -403,7 +403,91 @@ impl Parser {
             Keyword::False => Ok(Expression::Bool(false)),
             Keyword::Nil => Ok(Expression::Nil),
             Keyword::Type => Err(ParsingError::InvalidExpression("Keyword 'type' cannot be used as an expression".into())),
+            Keyword::Let => self.parse_let(),
+            Keyword::If => self.parse_if(),
+            Keyword::Then => Err(ParsingError::InvalidExpression("Unexpected 'then' keyword (should only appear after 'if')".into())),
+            Keyword::Else => Err(ParsingError::InvalidExpression("Unexpected 'else' keyword (should only appear after 'then' in an 'if' expression)".into())),
+            Keyword::In => Err(ParsingError::InvalidExpression("Unexpected 'in' keyword (should only appear in a 'let' expression)".into())),
         }
+    }
+
+    /// Parse: let <assigns> in <expr>
+    /// Desugar to: {<assigns>}::'(<expr>)
+    pub fn parse_let(&mut self) -> ParseResult<Expression> {
+        // Parse assignments until we hit 'in'
+        let mut assigns = vec![];
+        
+        loop {
+            // Check if we hit 'in'
+            if self.peek_type(0) == Some(&TokenType::Keyword(Keyword::In)) {
+                self.next();
+                break;
+            }
+
+            // Parse assignment
+            let id = self.parse_pattern()?;
+            let resources = self.parse_resource_importation()?;
+
+            if self.peek_type(0) == Some(&TokenType::Op("=".into())) {
+                self.next();
+                let expr = self.parse_expr_pratt(0.)?;
+                assigns.push(Assign(id, resources, expr));
+            } else {
+                assigns.push(Assign(id, resources, Expression::Nil));
+            }
+
+            self.expect(TokenType::EndExpr)?;
+        }
+
+        // Parse the body expression
+        let body_expr = self.parse_expr_pratt(0.)?;
+
+        // Desugar to: {assigns}::'(body_expr)
+        let env = Expression::Environment(assigns);
+        let frozen_body = Expression::Frozen(Box::new(body_expr));
+        Ok(Expression::Operation("::".into(), vec![env, frozen_body]))
+    }
+
+    /// Parse: if <cond> then <expr1> else <expr2>
+    /// Desugar to: eval (<cond> ? '(<expr1>), '(<expr2>))
+    pub fn parse_if(&mut self) -> ParseResult<Expression> {
+        // Parse condition
+        let cond = self.parse_expr_pratt(0.)?;
+
+        // Expect 'then'
+        if self.peek_type(0) != Some(&TokenType::Keyword(Keyword::Then)) {
+            return Err(ParsingError::Expected(
+                "'then' keyword".into(),
+                format!("{:?}", self.peek_type(0)),
+            ));
+        }
+        self.next();
+
+        // Parse then expression
+        let then_expr = self.parse_expr_pratt(0.)?;
+
+        // Expect 'else'
+        if self.peek_type(0) != Some(&TokenType::Keyword(Keyword::Else)) {
+            return Err(ParsingError::Expected(
+                "'else' keyword".into(),
+                format!("{:?}", self.peek_type(0)),
+            ));
+        }
+        self.next();
+
+        // Parse else expression
+        let else_expr = self.parse_expr_pratt(0.)?;
+
+        // Desugar to: eval (cond ? '(then_expr), '(else_expr))
+        let frozen_then = Expression::Frozen(Box::new(then_expr));
+        let frozen_else = Expression::Frozen(Box::new(else_expr));
+        let choice_pair = Expression::Operation(",".into(), vec![frozen_then, frozen_else]);
+        let cond_choice = Expression::Operation("?".into(), vec![cond, choice_pair]);
+        
+        Ok(Expression::Application(
+            Box::new(Expression::Var(vec!["eval".into()])),
+            Box::new(cond_choice),
+        ))
     }
 
     pub fn parse_pattern(&mut self) -> ParseResult<Expression> {
@@ -662,7 +746,10 @@ impl Parser {
                 | Some(TokenType::RBrace)
                 | Some(TokenType::Dot)
                 | Some(TokenType::DebugDot)
-                | Some(TokenType::Backslash) => break,
+                | Some(TokenType::Backslash)
+                | Some(TokenType::Keyword(Keyword::Then))
+                | Some(TokenType::Keyword(Keyword::Else))
+                | Some(TokenType::Keyword(Keyword::In)) => break,
 
                 Some(TokenType::Op(op)) if op == "=" || op == "@" => break,
 

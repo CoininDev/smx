@@ -1,6 +1,4 @@
 - smx_lib/
-  - math
-  - collections
   - web
   - gfx
   - sfx

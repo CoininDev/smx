@@ -54,8 +54,9 @@ The `?` operator takes a boolean on the left and a list on the right. It returns
 
 ```smx
 is_even = \a. a % 2 == 0 ? "yes", "no";
-some_list = false ? 1, 2, 3, 4, 5; // some_list = 2, 3, 4, 5;
 result = is_even 4; // result: "yes"
+
+some_list = false ? 1, 2, 3, 4, 5; // some_list = 2, 3, 4, 5;
 ```
 
 ### Pipe: `:`
@@ -93,6 +94,14 @@ pat = #'a; // The variables are evaluated before, so if you want it to be just a
 
 pat = #('a, 2, 3, 'b, nil) // You can use lists with '(' and ')'
 pat = #'_ // _ (wildcard) is also a name, so it needs to be freezed as well
+
+pat = #'(a ~ string) # typed names needs to be frozen too.
+
+pat = #'(a ~ [string | number | bool])
+
+pat = #'(a ~ {var1 ~ string; var2 ~ number;})
+
+pat = #'(a ~ [{env1;} | {env2 ~ number;} | string])
 ```
 
 ### Tail-Call Recursion Example
@@ -133,6 +142,9 @@ convert (1.0, 'string); // "1.0"
 convert ("1", 'number); // 1
 convert (1, 'bool); // true
 convert ("hello", 'number); // {nan = true;}
+convert (1, 'u256); // 1u256
+//equivalent to:
+u256 1
 ```
 
 ### Strict Numeric Types
@@ -145,13 +157,14 @@ SMX supports fixed-size numeric types for specialized applications (e.g., smart 
 Declare them using suffixes or the `convert` builtin:
 ```smx
 val = 100u256;
-count = convert(10, 'i32);
+count = convert(val, 'i32);
+or = i32 val
 ```
 ---
 
 ## Environments
 
-An **environment** is a named scope containing variable bindings. SMX code itself is an environment (). You can create and use them explicitly.
+An **environment** is a named scope containing variable bindings. SMX code itself is an environment. You can create and use them explicitly.
 
 > OBS: You can define resources and operators inside environments, but they won't be accessible with a `.`
 
@@ -204,7 +217,7 @@ a ~ number, b ~ number = 1, 2;
 ### Named Environment Destructuring
 
 ```smx
-env = {num1, num2 = 1, 2;};
+num1, num2 = 1, 2;
 ```
 
 ### Typed Function Parameters
@@ -290,6 +303,17 @@ result @{Example, MyNumber} = Example.add MyNumber;
 
 The `@{...}` annotation declares which resources a definition requires.
 
+There are 2 ways of requesting resources:
+1: In the pattern
+```smx
+my_fun @{Res} = \x ~ number. Res + x;
+result @{Res} = my_fun 3;
+```
+
+2: In the lambda itself
+```smx
+\x ~ number @{Res}. Res + x;
+```
 ---
 
 ## The IO Resource
@@ -311,6 +335,54 @@ _ @{IO} = IO.import {
 - `IO.fs.read` — reads a file, returning a string
 - `IO.import` — imports an `.amb` ambient file into the current environment
 - `_` — a discard variable; the result is thrown away
+
+---
+## Syntactic sugars
+To make the code easier to read, I've implemented some basic syntactic sugars.
+### `let ... in ...`
+this:
+```smx
+result = 
+    let
+        a = 1;
+        b = a + 1;
+        c = b + 2;
+    in 
+        a + b + c
+;
+```
+is equivalent to this:
+```smx
+result = 
+    {
+        a = 1;
+        b = a + 1;
+        c = b + 2;
+    }::'(
+        a + b + c
+    );
+```
+It creates an environment, and then applies it to the expression.
+
+### `if ... then ... else ...`
+this:
+```smx
+a = 3;
+result = 
+    if a == 4
+    then 3
+    else a + 1;
+```
+is equivalent to this:
+```smx
+a = "hello";
+result = eval (
+        a == 4 ?
+        '(3),
+        '(a + 1)
+    )
+```
+this means that, `then ...` and `else ...` expressions are automatically frozen, and only the selected expression is really evaluated, this makes it safe in tail-call functions.
 
 ---
 
