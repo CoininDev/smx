@@ -1,5 +1,5 @@
 use crate::{ast::*, eval::*};
-use std::{any::Any, rc::Rc, fmt::Debug, cell::RefCell};
+use std::{any::Any, sync::{Arc, Mutex}, fmt::Debug};
 use std::cmp::Ordering;
 use ordered_float::NotNan;
 use num_bigint::{BigInt, BigUint};
@@ -10,8 +10,8 @@ use serde_json;
 pub struct Ambient {
     pub vars: Environment,
     pub rsrcs: Environment,
-    pub natives: Vec<Rc<dyn Any>>,
-    pub custom_resources: Vec<Rc<RefCell<dyn IoObject>>>,
+    pub natives: Vec<Arc<dyn Any + Send + Sync>>,
+    pub custom_resources: Vec<Arc<Mutex<dyn IoObject + Send>>>,
 }
 
 impl Ambient {
@@ -38,14 +38,14 @@ impl Ambient {
         }
     }
 
-    pub fn add_custom_resource(&mut self, res: std::rc::Rc<RefCell<dyn IoObject>>) {
-        let name = res.borrow().name().to_string();
+    pub fn add_custom_resource(&mut self, res: Arc<Mutex<dyn IoObject + Send>>) {
+        let name = res.lock().unwrap().name().to_string();
         self.custom_resources.push(res.clone());
-        self.rsrcs.insert(name.clone(), Value::Builtin(name.clone())); 
+        self.rsrcs.insert(name.clone(), Value::Builtin(name.clone()));
     }
 }
 
-pub trait IoObject {
+pub trait IoObject: Send {
     fn redirect(&mut self, function: Vec<String>, value: Value, amb: &mut Ambient) -> EvalResult<Value>;
     fn name(&self) -> &str;
 }

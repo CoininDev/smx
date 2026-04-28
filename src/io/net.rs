@@ -4,7 +4,7 @@
 /////////////////////////////
 
 use crate::{io::*};
-use std::{rc::Rc, cell::RefCell};
+use std::sync::{Arc, Mutex};
 use std::net::{TcpStream};
 use std::io::Write;
 
@@ -64,7 +64,7 @@ impl NetIoObj {
 
                 let stream = error(TcpStream::connect(address))?;
                 let obj = NetNativeObj::Tcp {val: stream, receive: receive.clone()};
-                amb.natives.push(Rc::new(RefCell::new(obj)));
+                amb.natives.push(Arc::new(Mutex::new(obj)));
                 Ok(Value::Native(amb.natives.len() - 1))
             }
             other => Err(eval_error!(WrongTypes(String::from("IO.net.open"), PatternType::Environment, other)))
@@ -76,9 +76,9 @@ impl NetIoObj {
             Value::Pair(box Value::Native(native_index), box Value::Str(message)) => {
                 let a0 = amb.natives.get(native_index)
                     .ok_or(eval_error!(GenericError("Couldn't get the NATIVE by its id.".into())))?;
-                let a1: Rc<RefCell<NetNativeObj>> = a0.clone().downcast::<RefCell<NetNativeObj>>()
+                let a1: Arc<Mutex<NetNativeObj>> = a0.clone().downcast::<Mutex<NetNativeObj>>()
                     .map_err(|_| eval_error!(GenericError("This native doesn't have NetNativeObj type.".into())))?;
-                let mut a2 = a1.borrow_mut();
+                let mut a2 = a1.lock().unwrap();
                 match &mut *a2 {
                     NetNativeObj::Tcp {val: v, receive: _} => {
                         let _ = v.write_all(message.as_bytes());
@@ -97,9 +97,9 @@ impl NetIoObj {
             Value::Native(native_index) => {
                 let a0 = amb.natives.get(native_index)
                     .ok_or(eval_error!(GenericError("Couldn't get the NATIVE by its id.".into())))?;
-                let a1: Rc<RefCell<NetNativeObj>> = a0.clone().downcast::<RefCell<NetNativeObj>>()
+                let a1: Arc<Mutex<NetNativeObj>> = a0.clone().downcast::<Mutex<NetNativeObj>>()
                     .map_err(|_| eval_error!(GenericError("This native doesn't have NetNativeObj type.".into())))?;
-                let mut a2 = a1.borrow_mut();
+                let mut a2 = a1.lock().unwrap();
                 loop {
                     match &mut *a2 {
                         NetNativeObj::Tcp {val: _, receive: _} => {

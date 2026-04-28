@@ -545,9 +545,9 @@ pub fn apply_builtin(x: &str, arg: Value, amb: &mut Ambient) -> EvalResult<Value
             // Check custom resources
             let custom = amb.custom_resources.clone();
             for res in custom {
-                if res.borrow().name() == prefix {
+                if res.lock().unwrap().name() == prefix {
                     let fnames: Vec<String> = x.split('.').skip(1).map(|s| s.to_string()).collect();
-                    return res.borrow_mut().redirect(fnames, arg, amb);
+                    return res.lock().unwrap().redirect(fnames, arg, amb);
                 }
             }
         }
