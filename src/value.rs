@@ -45,7 +45,7 @@ impl Ambient {
     }
 }
 
-pub trait IoObject: Send {
+pub trait IoObject: Send + Sync + Any {
     fn redirect(&mut self, function: Vec<String>, value: Value, amb: &mut Ambient) -> EvalResult<Value>;
     fn name(&self) -> &str;
 }
