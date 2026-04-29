@@ -171,7 +171,7 @@ impl Parser {
             OpSig::Prefix("-".into()) => Operator::new(Assoc::NonAssoc, 10.),
             OpSig::Prefix("!".into()) => Operator::new(Assoc::NonAssoc, 10.),
 
-
+            OpSig::Infix("~".into())  => Operator::new(Assoc::NonAssoc, 9.),
 
             OpSig::Infix("**".into()) => Operator::new(Assoc::Right, 8.),
             OpSig::Infix("*".into())  => Operator::new(Assoc::Left, 7.),
