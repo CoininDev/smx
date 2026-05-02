@@ -1,10 +1,16 @@
 use crate::{ast::*, eval::*};
-use std::{any::Any, sync::{Arc, Mutex}, fmt::Debug};
-use std::cmp::Ordering;
-use ordered_float::NotNan;
+use im::HashMap;
 use num_bigint::{BigInt, BigUint};
-use serde::{Serialize, Serializer, Deserialize, Deserializer};
+use ordered_float::NotNan;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json;
+use std::cmp::Ordering;
+use std::collections::HashMap as StdHashMap;
+use std::{
+    any::Any,
+    fmt::Debug,
+    sync::{Arc, Mutex},
+};
 
 #[derive(Default, Clone)]
 pub struct Ambient {
@@ -12,6 +18,20 @@ pub struct Ambient {
     pub rsrcs: Environment,
     pub natives: Vec<Arc<dyn Any + Send + Sync>>,
     pub custom_resources: Vec<Arc<Mutex<dyn IoObject + Send>>>,
+    pub op_table: im::HashMap<OpSig, (Assoc, NotNan<f64>)>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Assoc {
+    Left,
+    Right,
+    NonAssoc,
+}
+
+#[derive(Debug, Clone, Eq, PartialEq, Hash)]
+pub enum OpSig {
+    Infix(String),
+    Prefix(String),
 }
 
 impl Ambient {
@@ -41,15 +61,20 @@ impl Ambient {
     pub fn add_custom_resource(&mut self, res: Arc<Mutex<dyn IoObject + Send>>) {
         let name = res.lock().unwrap().name().to_string();
         self.custom_resources.push(res.clone());
-        self.rsrcs.insert(name.clone(), Value::Builtin(name.clone()));
+        self.rsrcs
+            .insert(name.clone(), Value::Builtin(name.clone()));
     }
 }
 
 pub trait IoObject: Send + Sync + Any {
-    fn redirect(&mut self, function: Vec<String>, value: Value, amb: &mut Ambient) -> EvalResult<Value>;
+    fn redirect(
+        &mut self,
+        function: Vec<String>,
+        value: Value,
+        amb: &mut Ambient,
+    ) -> EvalResult<Value>;
     fn name(&self) -> &str;
 }
-
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum NumericValue {
@@ -62,8 +87,8 @@ impl std::fmt::Display for NumericValue {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Float(x) => write!(f, "{x}"),
-            Self::Int(x)   => write!(f, "{x}"),
-            Self::Uint(x)  => write!(f, "{x}"),
+            Self::Int(x) => write!(f, "{x}"),
+            Self::Uint(x) => write!(f, "{x}"),
         }
     }
 }
@@ -184,7 +209,9 @@ impl std::fmt::Display for PatternType {
             PatternType::EnvironmentWithSchema(schema) => {
                 write!(f, "{{")?;
                 for (i, (k, t)) in schema.iter().enumerate() {
-                    if i > 0 { write!(f, "; ")?; }
+                    if i > 0 {
+                        write!(f, "; ")?;
+                    }
                     write!(f, "{} ~ {}", k, t)?;
                 }
                 write!(f, "}}")
@@ -204,19 +231,21 @@ impl std::fmt::Display for PatternType {
 impl std::fmt::Display for Pattern {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Name(x)         => write!(f, "{x}"),
+            Self::Name(x) => write!(f, "{x}"),
             Self::TypedName(x, t) => write!(f, "{x} ~ {t}"),
-            Self::Value(x)        => write!(f, "{}", *x),
-            Self::Pair(a, b)      => write!(f, "({}, {})", *a, *b),
-            Self::Environment(e)  => {
+            Self::Value(x) => write!(f, "{}", *x),
+            Self::Pair(a, b) => write!(f, "({}, {})", *a, *b),
+            Self::Environment(e) => {
                 write!(f, "{{")?;
                 for (i, (k, p)) in e.iter().enumerate() {
-                    if i > 0 { write!(f, "; ")?; }
+                    if i > 0 {
+                        write!(f, "; ")?;
+                    }
                     write!(f, "{} = {}", k, p)?;
                 }
                 write!(f, "}}")
             }
-            Self::Wildcard        => write!(f, "_"),
+            Self::Wildcard => write!(f, "_"),
         }
     }
 }
@@ -233,12 +262,14 @@ impl std::fmt::Display for Value {
                 } else {
                     write!(f, "(\\{arg} @{{")?;
                     for (i, r) in res.iter().enumerate() {
-                        if i > 0 { write!(f, ", ")?; }
+                        if i > 0 {
+                            write!(f, ", ")?;
+                        }
                         write!(f, "{}", r)?;
                     }
                     write!(f, "}}. {body})")
                 }
-            },
+            }
             Self::Builtin(b) => write!(f, "{b}"),
             Self::Bool(b) => write!(f, "{b}"),
             Self::Pattern(p) => write!(f, "#{p}"),
@@ -254,7 +285,7 @@ impl std::fmt::Display for Value {
                 }
                 write!(f, "}}")
             }
-            Self::Nil => write!(f, "nil")
+            Self::Nil => write!(f, "nil"),
         }
     }
 }
@@ -263,14 +294,12 @@ impl PartialOrd for Value {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         match (self, other) {
             (Value::Num(a), Value::Num(b)) => a.partial_cmp(b),
-            (Value::StrictNum(t1, v1), Value::StrictNum(t2, v2)) if t1 == t2 => {
-                match (v1, v2) {
-                    (NumericValue::Float(a), NumericValue::Float(b)) => a.partial_cmp(b),
-                    (NumericValue::Int(a), NumericValue::Int(b)) => a.partial_cmp(b),
-                    (NumericValue::Uint(a), NumericValue::Uint(b)) => a.partial_cmp(b),
-                    _ => None,
-                }
-            }
+            (Value::StrictNum(t1, v1), Value::StrictNum(t2, v2)) if t1 == t2 => match (v1, v2) {
+                (NumericValue::Float(a), NumericValue::Float(b)) => a.partial_cmp(b),
+                (NumericValue::Int(a), NumericValue::Int(b)) => a.partial_cmp(b),
+                (NumericValue::Uint(a), NumericValue::Uint(b)) => a.partial_cmp(b),
+                _ => None,
+            },
             (Value::Bool(a), Value::Bool(b)) => a.partial_cmp(b),
             (Value::Nil, Value::Nil) => Some(Ordering::Equal),
             _ => None,
@@ -284,14 +313,18 @@ impl std::ops::Add for Value {
     fn add(self, rhs: Self) -> Self::Output {
         match (self, rhs) {
             (Value::Num(a), Value::Num(b)) => Value::Num(a + b),
-            (Value::StrictNum(t1, v1), Value::StrictNum(t2, v2)) if t1 == t2 => {
-                match (v1, v2) {
-                    (NumericValue::Float(a), NumericValue::Float(b)) => Value::StrictNum(t1, NumericValue::Float(a + b)),
-                    (NumericValue::Int(a), NumericValue::Int(b)) => Value::StrictNum(t1, NumericValue::Int(a + b)),
-                    (NumericValue::Uint(a), NumericValue::Uint(b)) => Value::StrictNum(t1, NumericValue::Uint(a + b)),
-                    _ => Value::Nil,
+            (Value::StrictNum(t1, v1), Value::StrictNum(t2, v2)) if t1 == t2 => match (v1, v2) {
+                (NumericValue::Float(a), NumericValue::Float(b)) => {
+                    Value::StrictNum(t1, NumericValue::Float(a + b))
                 }
-            }
+                (NumericValue::Int(a), NumericValue::Int(b)) => {
+                    Value::StrictNum(t1, NumericValue::Int(a + b))
+                }
+                (NumericValue::Uint(a), NumericValue::Uint(b)) => {
+                    Value::StrictNum(t1, NumericValue::Uint(a + b))
+                }
+                _ => Value::Nil,
+            },
             (Value::Str(a), Value::Str(b)) => Value::Str(format!("{a}{b}")),
             (Value::Str(s), other) => Value::Str(format!("{s}{other}")),
             (other, Value::Str(s)) => Value::Str(format!("{other}{s}")),
@@ -309,7 +342,9 @@ impl std::ops::Neg for Value {
     fn neg(self) -> Self::Output {
         match self {
             Value::Num(a) => Value::Num(-a),
-            Value::StrictNum(t, NumericValue::Float(a)) => Value::StrictNum(t, NumericValue::Float(-a)),
+            Value::StrictNum(t, NumericValue::Float(a)) => {
+                Value::StrictNum(t, NumericValue::Float(-a))
+            }
             Value::StrictNum(t, NumericValue::Int(a)) => Value::StrictNum(t, NumericValue::Int(-a)),
             _ => Value::Nil,
         }
@@ -333,20 +368,31 @@ impl std::ops::Sub for Value {
     fn sub(self, rhs: Self) -> Self::Output {
         match (self, rhs) {
             (Value::Num(a), Value::Num(b)) => Value::Num(a - b),
-            (Value::StrictNum(t1, v1), Value::StrictNum(t2, v2)) if t1 == t2 => {
-                match (v1, v2) {
-                    (NumericValue::Float(a), NumericValue::Float(b)) => Value::StrictNum(t1, NumericValue::Float(a - b)),
-                    (NumericValue::Int(a), NumericValue::Int(b)) => Value::StrictNum(t1, NumericValue::Int(a - b)),
-                    (NumericValue::Uint(a), NumericValue::Uint(b)) => Value::StrictNum(t1, NumericValue::Uint(a - b)),
-                    _ => Value::Nil,
+            (Value::StrictNum(t1, v1), Value::StrictNum(t2, v2)) if t1 == t2 => match (v1, v2) {
+                (NumericValue::Float(a), NumericValue::Float(b)) => {
+                    Value::StrictNum(t1, NumericValue::Float(a - b))
                 }
-            }
+                (NumericValue::Int(a), NumericValue::Int(b)) => {
+                    Value::StrictNum(t1, NumericValue::Int(a - b))
+                }
+                (NumericValue::Uint(a), NumericValue::Uint(b)) => {
+                    Value::StrictNum(t1, NumericValue::Uint(a - b))
+                }
+                _ => Value::Nil,
+            },
             (Value::Environment(mut a), rhs) => {
                 let keys = rhs.pair_to_vec();
                 for k in keys {
                     match k {
-                        Value::Str(s) => { a.remove(&s); }
-                        Value::Frozen(Expression::Var(v)) if v.len() == 1 => { a.remove(&v[0]); }
+                        Value::Str(s) => {
+                            a.remove(&s);
+                        }
+                        Value::Frozen(Expression {
+                            kind: ExprKind::Var(v),
+                            span: _,
+                        }) if v.len() == 1 => {
+                            a.remove(&v[0]);
+                        }
                         _ => {}
                     }
                 }
@@ -363,19 +409,22 @@ impl std::ops::Mul for Value {
     fn mul(self, rhs: Self) -> Self::Output {
         match (self, rhs) {
             (Value::Num(a), Value::Num(b)) => Value::Num(a * b),
-            (Value::StrictNum(t1, v1), Value::StrictNum(t2, v2)) if t1 == t2 => {
-                match (v1, v2) {
-                    (NumericValue::Float(a), NumericValue::Float(b)) => Value::StrictNum(t1, NumericValue::Float(a * b)),
-                    (NumericValue::Int(a), NumericValue::Int(b)) => Value::StrictNum(t1, NumericValue::Int(a * b)),
-                    (NumericValue::Uint(a), NumericValue::Uint(b)) => Value::StrictNum(t1, NumericValue::Uint(a * b)),
-                    _ => Value::Nil,
+            (Value::StrictNum(t1, v1), Value::StrictNum(t2, v2)) if t1 == t2 => match (v1, v2) {
+                (NumericValue::Float(a), NumericValue::Float(b)) => {
+                    Value::StrictNum(t1, NumericValue::Float(a * b))
                 }
-            }
+                (NumericValue::Int(a), NumericValue::Int(b)) => {
+                    Value::StrictNum(t1, NumericValue::Int(a * b))
+                }
+                (NumericValue::Uint(a), NumericValue::Uint(b)) => {
+                    Value::StrictNum(t1, NumericValue::Uint(a * b))
+                }
+                _ => Value::Nil,
+            },
             _ => Value::Nil,
         }
     }
 }
-
 
 impl std::ops::Div for Value {
     type Output = Self;
@@ -383,14 +432,18 @@ impl std::ops::Div for Value {
     fn div(self, rhs: Self) -> Self::Output {
         match (self, rhs) {
             (Value::Num(a), Value::Num(b)) => Value::Num(a / b),
-            (Value::StrictNum(t1, v1), Value::StrictNum(t2, v2)) if t1 == t2 => {
-                match (v1, v2) {
-                    (NumericValue::Float(a), NumericValue::Float(b)) => Value::StrictNum(t1, NumericValue::Float(a / b)),
-                    (NumericValue::Int(a), NumericValue::Int(b)) => Value::StrictNum(t1, NumericValue::Int(a / b)),
-                    (NumericValue::Uint(a), NumericValue::Uint(b)) => Value::StrictNum(t1, NumericValue::Uint(a / b)),
-                    _ => Value::Nil,
+            (Value::StrictNum(t1, v1), Value::StrictNum(t2, v2)) if t1 == t2 => match (v1, v2) {
+                (NumericValue::Float(a), NumericValue::Float(b)) => {
+                    Value::StrictNum(t1, NumericValue::Float(a / b))
                 }
-            }
+                (NumericValue::Int(a), NumericValue::Int(b)) => {
+                    Value::StrictNum(t1, NumericValue::Int(a / b))
+                }
+                (NumericValue::Uint(a), NumericValue::Uint(b)) => {
+                    Value::StrictNum(t1, NumericValue::Uint(a / b))
+                }
+                _ => Value::Nil,
+            },
             _ => Value::Nil,
         }
     }
@@ -486,7 +539,7 @@ impl Serialize for Value {
             Value::Environment(_env) => {
                 let mut map = serializer.serialize_map(Some(2))?;
                 map.serialize_entry("type", "environment")?;
-                
+
                 // Convert im::HashMap to a standard map for serialization
                 let mut data_map = serde_json::Map::new();
                 for (k, v) in _env.iter() {
@@ -494,7 +547,7 @@ impl Serialize for Value {
                         .map_err(|_| serde::ser::Error::custom("Failed to serialize value"))?;
                     data_map.insert(k.clone(), serialized);
                 }
-                
+
                 map.serialize_entry("data", &data_map)?;
                 map.end()
             }
@@ -582,7 +635,9 @@ impl<'de> Deserialize<'de> for NumericValue {
                         let f: f64 = value_str
                             .parse()
                             .map_err(|_| de::Error::custom("invalid float"))?;
-                        Ok(NumericValue::Float(NotNan::new(f).map_err(|_| de::Error::custom("NaN not allowed"))?))
+                        Ok(NumericValue::Float(
+                            NotNan::new(f).map_err(|_| de::Error::custom("NaN not allowed"))?,
+                        ))
                     }
                     "int" => {
                         let i: BigInt = value_str
@@ -711,15 +766,19 @@ impl<'de> Deserialize<'de> for Value {
                             .ok_or_else(|| de::Error::missing_field("value"))?
                             .as_f64()
                             .ok_or_else(|| de::Error::custom("expected float"))?;
-                        Ok(Value::Num(NotNan::new(f).map_err(|_| de::Error::custom("NaN not allowed"))?))
+                        Ok(Value::Num(
+                            NotNan::new(f).map_err(|_| de::Error::custom("NaN not allowed"))?,
+                        ))
                     }
                     "strict_number" => {
-                        let num_type_str = num_type.ok_or_else(|| de::Error::missing_field("num_type"))?;
-                        let numeric_json = value.ok_or_else(|| de::Error::missing_field("value"))?;
-                        
+                        let num_type_str =
+                            num_type.ok_or_else(|| de::Error::missing_field("num_type"))?;
+                        let numeric_json =
+                            value.ok_or_else(|| de::Error::missing_field("value"))?;
+
                         let numeric_value: NumericValue = serde_json::from_value(numeric_json)
                             .map_err(|e| de::Error::custom(e.to_string()))?;
-                        
+
                         let num_type = match num_type_str.as_str() {
                             "i32" => NumericType::I32,
                             "i64" => NumericType::I64,
@@ -758,9 +817,10 @@ impl<'de> Deserialize<'de> for Value {
                     }
                     "environment" => {
                         let env_data = data.ok_or_else(|| de::Error::missing_field("data"))?;
-                        let env_map = env_data.as_object()
+                        let env_map = env_data
+                            .as_object()
                             .ok_or_else(|| de::Error::custom("expected object for environment"))?;
-                        
+
                         let mut env = im::HashMap::new();
                         for (k, v) in env_map.iter() {
                             let value: Value = serde_json::from_value(v.clone())
@@ -775,7 +835,7 @@ impl<'de> Deserialize<'de> for Value {
                             .as_str()
                             .ok_or_else(|| de::Error::custom("expected string"))?
                             .to_string();
-                        
+
                         let pt = match type_str.as_str() {
                             "any" => PatternType::Any,
                             "nil" => PatternType::Nil,
@@ -794,7 +854,10 @@ impl<'de> Deserialize<'de> for Value {
                         let idx = index.ok_or_else(|| de::Error::missing_field("index"))?;
                         Ok(Value::Native(idx))
                     }
-                    _ => Err(de::Error::custom(format!("unknown value type: {}", value_type))),
+                    _ => Err(de::Error::custom(format!(
+                        "unknown value type: {}",
+                        value_type
+                    ))),
                 }
             }
         }

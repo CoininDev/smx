@@ -21,17 +21,29 @@ pub fn mount_num(num: f64) -> EvalResult<NotNan<f64>> {
 }
 
 pub fn eval_program_ambient(tree: Program) -> EvalResult<Ambient> {
-    let mut rsrcs = HashMap::new();
-    for res in &tree.body {
-        eval_resource(res, &mut rsrcs)?;
-    }
+    eval_program_ambient_with_initial(tree, Ambient::default())
+}
 
-    let mut amb = Ambient{vars: HashMap::new(), rsrcs, natives: vec![], custom_resources: vec![]};
+pub fn eval_program_ambient_with_initial(tree: Program, mut amb: Ambient) -> EvalResult<Ambient> {
+    for res in &tree.body {
+        eval_resource(res, &mut amb.rsrcs)?;
+    }
     for assign in tree.body {
         eval_assign(assign, &mut amb)?;
     }
+    Ok(amb)
+}
 
-    return Ok(amb);
+pub fn eval_program_with_ambient(tree: Program, amb: Ambient) -> EvalResult<Value> {
+    let vars = eval_program_ambient_with_initial(tree, amb)?.vars;
+
+    match vars.get("result".into()) {
+        Some(a) => Ok(a.clone()),
+        None => match vars.into_iter().last() {
+            Some(a) => Ok(a.1),
+            None => Ok(Value::Num(mount_num(0.)?)),
+        },
+    }
 }
 
 pub fn eval_program(tree: Program) -> EvalResult<Value> {
@@ -47,13 +59,13 @@ pub fn eval_program(tree: Program) -> EvalResult<Value> {
 }
 
 pub fn eval_resource(res: &Assign, resources: &mut Environment) -> EvalResult<()> {
-    let name = match &res.0 {
-        Expression::Var(m) if m[0] == "__RESOURCE__" => m[1].clone(),
+    let name = match &res.0.kind {
+        ExprKind::Var(m) if m[0] == "__RESOURCE__" => m[1].clone(),
         _ => return Ok(()),
     };
 
     
-    let mut amb = Ambient {vars: HashMap::new(), rsrcs: resources.clone(), natives:vec![], custom_resources: vec![]};
+    let mut amb = Ambient {vars: HashMap::new(), rsrcs: resources.clone(), natives:vec![], custom_resources: vec![], op_table: im::HashMap::new()};
     for res in res.1.clone() {
         match resources.get(&res) {
             _ if is_builtin_res(res.as_str()) => amb.vars.insert(res.clone(), Value::Builtin(res.into())),
@@ -66,7 +78,7 @@ pub fn eval_resource(res: &Assign, resources: &mut Environment) -> EvalResult<()
     Ok(())
 }
 pub fn eval_assign_imut(a: Assign, amb: &Ambient) -> EvalResult<Ambient> {
-    if let Expression::Var(m) = &a.0 {
+    if let ExprKind::Var(m) = &a.0.kind {
         if m[0] == "__RESOURCE__" {
             return Ok(Ambient::default());
         }
@@ -93,23 +105,25 @@ pub fn eval_assign_imut(a: Assign, amb: &Ambient) -> EvalResult<Ambient> {
         }
     }
 
-    let value = eval_expr(a.2, &mut amb2).map_err(|e| EvalError{
-        errtype: e.errtype, 
-        assign: Some(pat.to_string())
+    let value = eval_expr(a.2, &mut amb2).map_err(|mut e| {
+        e.assign = Some(pat.to_string());
+        e
     })?;
 
     for res in added_resources {
         amb2.vars.remove(&res);
     }
     
-    #[cfg(debug_assertions)]
-    println!("eval_assign adding: {pat} = {value}");
     let mut r = Ambient::default();
     r.vars.extend(eval_pattern_pair(pat, value)?.into_iter());
     Ok(r)
 }
 pub fn eval_assign(a: Assign, amb: &mut Ambient) -> EvalResult<()> {
-    if let Expression::Var(m) = &a.0 {
+    if let ExprKind::OpSigVar(sig, assoc, prec) = &a.0.kind {
+        amb.op_table.insert(sig.clone(), (*assoc, *prec));
+    }
+
+    if let ExprKind::Var(m) = &a.0.kind {
         if m[0] == "__RESOURCE__" {
             return Ok(());
         }
@@ -135,9 +149,9 @@ pub fn eval_assign(a: Assign, amb: &mut Ambient) -> EvalResult<()> {
         }
     }
 
-    let mut value = eval_expr(a.2, &mut amb2).map_err(|e| EvalError{
-        errtype: e.errtype, 
-        assign: Some(pat.to_string())
+    let mut value = eval_expr(a.2, &mut amb2).map_err(|mut e| {
+        e.assign = Some(pat.to_string());
+        e
     })?;
 
     // Propagation of resources to the lambda
@@ -154,8 +168,6 @@ pub fn eval_assign(a: Assign, amb: &mut Ambient) -> EvalResult<()> {
         amb2.vars.remove(&res);
     }
     
-    #[cfg(debug_assertions)]
-    println!("eval_assign adding: {pat} = {value}");
     amb2.vars.extend(eval_pattern_pair(pat, value)?.into_iter());
     *amb = amb2;
     Ok(())
@@ -167,8 +179,9 @@ fn is_builtin_res(name: &str) -> bool {
 }
 
 pub fn eval_expr(e: Expression, amb: &mut Ambient) -> EvalResult<Value> {
-    match e {
-        Expression::Var(v) => {
+    let span = e.span;
+    let res = match e.kind {
+            ExprKind::Var(v) => {
             match v.as_slice() {
                 [one] => {
                     if let Some(_) = builtin_registry().into_iter().filter(|a| (*a).matches(&one)).next() {
@@ -198,25 +211,26 @@ pub fn eval_expr(e: Expression, amb: &mut Ambient) -> EvalResult<Value> {
                         None=> Err(eval_error!(VariableDoesNotExists(format!("{}", v[0])))),
                     }?;
 
-                    eval_expr(Expression::Var(v[1..].to_vec()), &mut Ambient{
+                    eval_expr(Expression::dummy(ExprKind::Var(v[1..].to_vec())), &mut Ambient{
                         vars: a, 
                         rsrcs: amb.rsrcs.clone(), 
                         natives: amb.natives.clone(),
-                        custom_resources: amb.custom_resources.clone()
+                        custom_resources: amb.custom_resources.clone(),
+                        op_table: amb.op_table.clone()
                     })
                 }
             }
             
         }
-        Expression::OpSigVar(OpSig::Prefix(v))|
-        Expression::OpSigVar(OpSig::Infix(v))=> {
+        ExprKind::OpSigVar(OpSig::Prefix(v), _, _)|
+        ExprKind::OpSigVar(OpSig::Infix(v), _, _)=> {
             match amb.vars.get(&format!("<operator>{v}")) {
                 Some(i) => Ok(i.clone()),
                 None    => Err(eval_error!(VariableDoesNotExists(format!("{v}")))),
             }
         },
-        Expression::Num(i)    => Ok(Value::Num(i)),
-        Expression::StrictNum(t, s) => {
+        ExprKind::Num(i)    => Ok(Value::Num(i)),
+        ExprKind::StrictNum(t, s) => {
             let val = match t {
                 NumericType::F8 | NumericType::F16 | NumericType::F32 | NumericType::F64 | NumericType::F128 | NumericType::F256 => {
                     NumericValue::Float(NotNan::new(s.parse::<f64>().map_err(|e| eval_error!(GenericError(e.to_string())))?).unwrap())
@@ -230,10 +244,10 @@ pub fn eval_expr(e: Expression, amb: &mut Ambient) -> EvalResult<Value> {
             };
             Ok(Value::StrictNum(t, val))
         }
-        Expression::Str(s)    => Ok(Value::Str(s)),
-        Expression::Nil       => Ok(Value::Nil),
-        Expression::Frozen(m) => Ok(Value::Frozen(*m)),
-        Expression::Environment(e) => {
+        ExprKind::Str(s)    => Ok(Value::Str(s)),
+        ExprKind::Nil       => Ok(Value::Nil),
+        ExprKind::Frozen(m) => Ok(Value::Frozen(*m)),
+        ExprKind::Environment(e) => {
             let mut amb2: Ambient = amb.clone();
             let mut new_amb: Ambient = Ambient::default();
             for ass in e {
@@ -243,9 +257,9 @@ pub fn eval_expr(e: Expression, amb: &mut Ambient) -> EvalResult<Value> {
             }
             Ok(Value::Environment(new_amb.vars))
         } 
-        Expression::Bool(b)   => Ok(Value::Bool(b)),
-        Expression::Operation(op, exprs) => eval_operation(op, exprs, amb),
-        Expression::Lambda(param, body, resources) => {
+        ExprKind::Bool(b)   => Ok(Value::Bool(b)),
+        ExprKind::Operation(op, exprs) => eval_operation(op, exprs, amb),
+        ExprKind::Lambda(param, body, resources) => {
             let mut cap_env = amb.vars.clone();
             for r in &resources {
                 cap_env.remove(r);
@@ -255,26 +269,27 @@ pub fn eval_expr(e: Expression, amb: &mut Ambient) -> EvalResult<Value> {
             )
         },
 
-        Expression::Application(f, x) => apply(
+        ExprKind::Application(f, x) => apply(
             eval_expr(*f, amb)?, 
             eval_expr(*x, amb)?, 
             amb
         ),
-        Expression::ListType(_) => Err(eval_error!(PatternError(
+        ExprKind::ListType(_) => Err(eval_error!(PatternError(
                     "The [1, 2, 3] syntax is just valid in types, please, use (1, 2, 3) instead".into()
         ))),
-        Expression::TypeAlias(_name, expr) => {
+        ExprKind::TypeAlias(_name, expr) => {
             // This is handled in eval_assign, but if called directly:
             let ty = eval_pattern_type(&expr, amb)?;
             Ok(Value::Type(ty))
         }
-    }
+    };
+    res.map_err(|e| e.with_span(span))
 }
 
 pub fn eval_pattern_type(ty: &Expression, amb: &Ambient) -> EvalResult<PatternType> {
     fn listing(a: Expression, amb: &Ambient) -> Result<im::Vector<PatternType>, String> {
-        match a {
-            Expression::Operation(op, xs) if op == "|" => match xs.as_slice() {
+        match a.kind {
+            ExprKind::Operation(op, xs) if op == "|" => match xs.as_slice() {
                 [left, right] => Ok(
                     vector![eval_pattern_type(left, amb).map_err(|e| format!("left error: {e}"))?] + listing(right.clone(), amb)?
                 ),
@@ -285,8 +300,8 @@ pub fn eval_pattern_type(ty: &Expression, amb: &Ambient) -> EvalResult<PatternTy
         }
     }
 
-    match ty {
-        Expression::Var(v) if v.len() == 1 => match v[0].as_str() {
+    match &ty.kind {
+            ExprKind::Var(v) if v.len() == 1 => match v[0].as_str() {
             "nil"     => Ok(PatternType::Nil),
             "pattern" => Ok(PatternType::Pattern),
             "bool"    => Ok(PatternType::Bool),
@@ -306,22 +321,22 @@ pub fn eval_pattern_type(ty: &Expression, amb: &Ambient) -> EvalResult<PatternTy
                 }
             }
         }
-        Expression::Environment(body) => {
+        ExprKind::Environment(body) => {
             let mut schema = vec![];
             for Assign(id, _, expr) in body {
-                match id {
-                    Expression::Var(v) if v.len() == 1 => {
+                match &id.kind {
+            ExprKind::Var(v) if v.len() == 1 => {
                         let name = v[0].clone();
-                        let ty = if let Expression::Nil = expr {
+                        let ty = if let ExprKind::Nil = expr.kind {
                             PatternType::Any
                         } else {
-                            eval_pattern_type(expr, amb)?
+                            eval_pattern_type(&expr, amb)?
                         };
                         schema.push((name, ty));
                     }
-                    Expression::Operation(op, xs) if op == "~" => {
+                    ExprKind::Operation(op, xs) if op == "~" => {
                         match xs.as_slice() {
-                            [Expression::Var(v), ty_expr] if v.len() == 1 => {
+                            [Expression { kind: ExprKind::Var(v), .. }, ty_expr] if v.len() == 1 => {
                                 schema.push((v[0].clone(), eval_pattern_type(ty_expr, amb)?));
                             }
                             _ => return Err(eval_error!(PatternError(format!("Invalid schema entry: {}", id))))
@@ -332,13 +347,13 @@ pub fn eval_pattern_type(ty: &Expression, amb: &Ambient) -> EvalResult<PatternTy
             }
             Ok(PatternType::EnvironmentWithSchema(schema))
         }
-        Expression::ListType(Some(box x)) => {
+        ExprKind::ListType(Some(box x)) => {
             let list: Vec<_> = listing(x.clone(), amb).map_err(|e| eval_error!(PatternError(e)))?.into_iter().collect();
             Ok(PatternType::List(list))
         },
 
-        Expression::ListType(None) => Ok(PatternType::List(vec![])),
-        Expression::Nil => Ok(PatternType::Nil),
+        ExprKind::ListType(None) => Ok(PatternType::List(vec![])),
+        ExprKind::Nil => Ok(PatternType::Nil),
         _ => Err(eval_error!(PatternError(format!("invalid pattern expression: {ty:?}"))))
     }
 }
@@ -348,49 +363,49 @@ pub fn eval_pattern(input: Expression, amb: &Ambient) -> EvalResult<Pattern> {
         eval_pattern(x.clone(), amb)
     };
     
-    match input {
-        Expression::Operation(op, exprs) if op == "," => match exprs.as_slice() {
+    match input.kind {
+            ExprKind::Operation(op, exprs) if op == "," => match exprs.as_slice() {
                 [left, right] => Ok(Pattern::Pair(Box::new(eval(left)?), Box::new(eval(right)?))),
                 _ => Err(eval_error!(InvalidSizeOfArgsFor(",".to_string()))),
         },
 
-        Expression::Operation(ref op, ref exprs) if op == "~" => match exprs.as_slice() {
-            [Expression::Var(v), ty] if v.len() == 1 => {
+        ExprKind::Operation(ref op, ref exprs) if op == "~" => match exprs.as_slice() {
+            [Expression { kind: ExprKind::Var(v), .. }, ty] if v.len() == 1 => {
                 Ok(Pattern::TypedName(v[0].clone(), eval_pattern_type(ty, amb)?))
             }
             _ => Err(eval_error!(PatternError(format!("Invalid typed name: {:?}", input))))
         },
-        Expression::Operation(ref op, ref exprs) if op == "#" => {
+        ExprKind::Operation(ref op, ref exprs) if op == "#" => {
             match eval_operation(op.clone(), exprs.clone(), &mut amb.clone())? {
                 Value::Pattern(p) => Ok(p),
                 other => Ok(Pattern::Value(Box::new(other))),
             }
         }
 
-        Expression::Var(v) if matches!(v.as_slice(), [x] if x == "_") => Ok(Pattern::Wildcard),
-        Expression::Var(v) if v.len() == 1 => Ok(Pattern::Name(v[0].clone())),
+        ExprKind::Var(v) if matches!(v.as_slice(), [x] if x == "_") => Ok(Pattern::Wildcard),
+        ExprKind::Var(v) if v.len() == 1 => Ok(Pattern::Name(v[0].clone())),
         
 
         //used in custom operators definition only
-        Expression::OpSigVar(OpSig::Prefix(x)) |
-        Expression::OpSigVar(OpSig::Infix(x))  => Ok(Pattern::Name(format!("<custom_operator>{x}"))),
+        ExprKind::OpSigVar(OpSig::Prefix(x), _, _) |
+        ExprKind::OpSigVar(OpSig::Infix(x), _, _)  => Ok(Pattern::Name(format!("<custom_operator>{x}"))),
 
-        Expression::Environment(body) => {
+        ExprKind::Environment(body) => {
             let mut schema = vec![];
             for Assign(id, _, expr) in body {
-                match id {
-                    Expression::Var(v) if v.len() == 1 => {
+                match id.kind {
+            ExprKind::Var(v) if v.len() == 1 => {
                         let name = v[0].clone();
-                        let pat = if let Expression::Nil = expr {
+                        let pat = if let ExprKind::Nil = expr.kind {
                             Pattern::Name(name.clone())
                         } else {
                             eval_pattern(expr, amb)?
                         };
                         schema.push((name, pat));
                     }
-                    Expression::Operation(ref op, ref xs) if op == "~" => {
+                    ExprKind::Operation(ref op, ref xs) if op == "~" => {
                         match xs.as_slice() {
-                            [Expression::Var(v), _] if v.len() == 1 => {
+                            [Expression { kind: ExprKind::Var(v), .. }, _] if v.len() == 1 => {
                                 let name = v[0].clone();
                                 let pat = eval_pattern(id, amb)?;
                                 schema.push((name, pat));
@@ -404,7 +419,7 @@ pub fn eval_pattern(input: Expression, amb: &Ambient) -> EvalResult<Pattern> {
             Ok(Pattern::Environment(schema))
         }
 
-        other => Ok(Pattern::Value(Box::new(eval_expr(other, &mut Ambient::default())?))),
+        other => Ok(Pattern::Value(Box::new(eval_expr(Expression::dummy(other), &mut Ambient::default())?))),
     }
 }
 
@@ -529,31 +544,38 @@ pub fn apply_builtin(x: &str, arg: Value, amb: &mut Ambient) -> EvalResult<Value
     let io_resource_imported = matches!(amb.vars.get("IO"), Some(Value::Builtin(x)) if x == "IO");
     
     let bi = builtin_registry().into_iter().filter(|b| b.matches(x)).next();
-    if let Some(ci) = bi {
-        return ci.call(arg, amb);
-    }
-
-    if let Some(prefix) = x.split('.').next() {
+    let res = if let Some(ci) = bi {
+        ci.call(arg, amb)
+    } else if let Some(prefix) = x.split('.').next() {
         if prefix == "IO" && io_resource_imported {
             let fnames: Vec<String> = x.split('.').map(|f| f.to_string()).collect();
             let mut io = IoResource { custom_resources: amb.custom_resources.clone() };
             if fnames.len() == 2 {
-                return io.redirect(fnames.last().unwrap().to_string(), arg, amb);
+                io.redirect(fnames.last().unwrap().to_string(), arg, amb)
+            } else {
+                io.objects(fnames[1].clone(), fnames[2..].to_vec(), arg, amb)
             }
-            return io.objects(fnames[1].clone(), fnames[2..].to_vec(), arg, amb);
         } else {
             // Check custom resources
+            let mut result = Err(eval_error!(VariableDoesNotExists(x.to_string())));
             let custom = amb.custom_resources.clone();
             for res in custom {
                 if res.lock().unwrap().name() == prefix {
                     let fnames: Vec<String> = x.split('.').skip(1).map(|s| s.to_string()).collect();
-                    return res.lock().unwrap().redirect(fnames, arg, amb);
+                    result = res.lock().unwrap().redirect(fnames, arg, amb);
+                    break;
                 }
             }
+            result
         }
-    }
+    } else {
+        Err(eval_error!(VariableDoesNotExists(x.to_string())))
+    };
 
-    Err(eval_error!(VariableDoesNotExists(x.to_string())))
+    res.map_err(|mut e| {
+        e.call_stack.push(x.to_string());
+        e
+    })
 }
 pub fn apply(func: Value, arg: Value, amb: &mut Ambient) -> EvalResult<Value> {
     let func_clone = func.clone();
@@ -580,9 +602,13 @@ pub fn apply(func: Value, arg: Value, amb: &mut Ambient) -> EvalResult<Value> {
         rsrcs: amb.rsrcs.clone(),
         natives: amb.natives.clone(),
         custom_resources: amb.custom_resources.clone(),
+        op_table: amb.op_table.clone(),
     };
     
-    let res = eval_expr(body, &mut new_amb);
+    let res = eval_expr(body, &mut new_amb).map_err(|mut e| {
+        e.call_stack.push("<lambda>".into());
+        e
+    });
 
     // Sync back variables that were NOT in the original local_bindings (parameters/captures)
     // and were added to new_amb.vars during eval_expr (e.g. by IO.import)
@@ -597,12 +623,13 @@ pub fn apply(func: Value, arg: Value, amb: &mut Ambient) -> EvalResult<Value> {
 
 pub fn eval_operation(op: String, exprs: Vec<Expression>, amb: &mut Ambient) 
     -> EvalResult<Value> {  
+    let op_clone = op.clone();
     let amb_clone = amb.clone();
     let mut eval = |x: &Expression| -> EvalResult<Value> {
         eval_expr(x.clone(), amb)
     };
 
-    match op.as_str() {
+    let res = match op.as_str() {
         "#" => match exprs.as_slice() {
             [expr] => Ok(builtin_pattern_from_value(eval(expr)?, amb)),
             _ => Err(eval_error!(InvalidSizeOfArgsFor("#".to_string()))),
@@ -764,17 +791,15 @@ pub fn eval_operation(op: String, exprs: Vec<Expression>, amb: &mut Ambient)
         }
         "::" => match exprs.as_slice() {
             [left, right] => match (eval(left)?, eval(right)?) {
-                (Value::Environment(a), Value::Frozen(e)) => {
-                    let mut new_vars = amb.vars.clone();
-                    new_vars.extend(a);
-                    eval_expr(e, 
-                    &mut Ambient {
-                        vars: new_vars, 
-                        rsrcs: amb.rsrcs.clone(), 
-                        natives: amb.natives.clone(),
-                        custom_resources: amb.custom_resources.clone()
-                    }
-                )},
+                (Value::Environment(env), Value::Frozen(e)) => {
+                    eval_expr(e, &mut Ambient {
+                        vars: env,
+                        rsrcs: amb_clone.rsrcs.clone(),
+                        natives: amb_clone.natives.clone(),
+                        custom_resources: amb_clone.custom_resources.clone(),
+                        op_table: amb_clone.op_table.clone(),
+                    })
+                },
                 _ => Err(eval_error!(WrongTypes("::".to_string(), 
                             PatternType::List(vec![PatternType::Environment, PatternType::Frozen]),
                             Value::Pair(Box::new(eval(left)?), Box::new(eval(right)?))))),
@@ -802,5 +827,48 @@ pub fn eval_operation(op: String, exprs: Vec<Expression>, amb: &mut Ambient)
             }
         }
         _ => Err(eval_error!(UnexpectedOperator(format!("{op}")))),
+    };
+    res.map_err(|mut e| {
+        e.call_stack.push(op_clone);
+        e
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::tokenize;
+    use crate::ast::Parser;
+
+    #[test]
+    fn test_call_stack_on_error() {
+        let code = "
+            f = \\x. x + z;
+            g = \\y. f y;
+            result = g 10;
+        ";
+        let tokens = tokenize(code).unwrap();
+        let mut parser = Parser::new(tokens);
+        let program = parser.parse_program().unwrap();
+        
+        let err = eval_program(program).unwrap_err();
+        
+        // Call stack should contain two <lambda> entries
+        assert_eq!(err.call_stack.len(), 2);
+        assert_eq!(err.call_stack[0], "<lambda>");
+        assert_eq!(err.call_stack[1], "<lambda>");
+    }
+
+    #[test]
+    fn test_builtin_call_stack() {
+        // Test an error inside a builtin or something that calls a builtin
+        let code = "result = 1 / 0;";
+        let tokens = tokenize(code).unwrap();
+        let mut parser = Parser::new(tokens);
+        let program = parser.parse_program().unwrap();
+        
+        let err = eval_program(program).unwrap_err();
+        assert_eq!(err.call_stack.len(), 1);
+        assert_eq!(err.call_stack[0], "/");
     }
 }

@@ -6,13 +6,15 @@ use crate::{
     value::*,
 };
 
-use im::hashmap;
-use rand::RngExt;
+pub use im::hashmap;
+
 use std::io::Write;
+use rand::RngExt;
+use std::thread::sleep;
+use ordered_float::NotNan;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 use std::time::Duration;
-use std::thread::sleep;
 
 mod file;
 mod net;
@@ -114,7 +116,7 @@ impl IoResource {
     pub fn import_as_env(&self, arg: Value) -> EvalResult<Value> {
         match arg {
             Value::Str(name) => {
-                let content = match std::fs::read_to_string(name) {
+                let content = match std::fs::read_to_string(&name) {
                     Ok(t) => t,
                     Err(e) => {
                         return Ok(Value::Environment(hashmap! {
@@ -124,7 +126,22 @@ impl IoResource {
                 };
                 let content = format!("{{{content}}}");
                 util_eval_expr_str(&content, &Ambient::default())
-                    .map_err(|s| eval_error!(GenericError(s)))
+                    .map_err(|err| {
+                        let (mut e, span) = match err {
+                            SmxError::Eval(e) => (e, None),
+                            SmxError::Parsing(p) => (EvalError::new(GenericError(p.errtype.to_string())), p.span),
+                            SmxError::Lexer(l) => (EvalError::new(GenericError(l.errtype.to_string())), Some(l.span)),
+                            _ => (EvalError::new(GenericError(err.to_string())), None),
+                        };
+                        e.call_stack.push(format!("file: {name}"));
+                        if e.source_code.is_none() {
+                            e.source_code = Some(content.clone());
+                            if let Some(s) = span {
+                                e.span = Some(s);
+                            }
+                        }
+                        e
+                    })
             }
             other => Err(eval_error!(WrongTypes(
                 "IO.import_as_env".into(),
@@ -157,7 +174,7 @@ impl IoResource {
                     _ => false,
                 };
 
-                let content = match std::fs::read_to_string(file) {
+                let content = match std::fs::read_to_string(&file) {
                     Ok(t) => t,
                     Err(e) => {
                         return Ok(Value::Environment(hashmap! {
@@ -166,8 +183,23 @@ impl IoResource {
                     }
                 };
 
-                let mut new_amb: Ambient = util_eval_program_ambient_str(&content)
-                    .map_err(|u| eval_error!(GenericError(u)))?;
+                let mut new_amb: Ambient = util_eval_program_ambient_with_op_table(&content, &amb.op_table)
+                    .map_err(|err| {
+                        let (mut e, span) = match err {
+                            SmxError::Eval(e) => (e, None),
+                            SmxError::Parsing(p) => (EvalError::new(GenericError(p.errtype.to_string())), p.span),
+                            SmxError::Lexer(l) => (EvalError::new(GenericError(l.errtype.to_string())), Some(l.span)),
+                            _ => (EvalError::new(GenericError(err.to_string())), None),
+                        };
+                        e.call_stack.push(format!("file: {file}"));
+                        if e.source_code.is_none() {
+                            e.source_code = Some(content.clone());
+                            if let Some(s) = span {
+                                e.span = Some(s);
+                            }
+                        }
+                        e
+                    })?;
 
                 if skip_underscored {
                     let va = new_amb
@@ -327,33 +359,36 @@ impl IoResource {
     }
 }
 
-pub fn util_eval_program_ambient_str(input: &str) -> Result<Ambient, String> {
-    let tks = Lexer::new(input)
-        .map(|res| res.map_err(|e| e.to_string()))
-        .collect::<Result<Vec<Token>, String>>()?;
-    let program = Parser::new(tks)
-        .parse_program()
-        .map_err(|e| e.to_string())?;
-
-    eval_program_ambient(program).map_err(|e| e.to_string())
+pub fn util_eval_program_ambient_str(input: &str) -> Result<Ambient, SmxError> {
+    util_eval_program_ambient_with_op_table(input, &im::HashMap::new())
 }
 
-pub fn util_eval_expr_str(input: &str, amb: &Ambient) -> Result<Value, String> {
+pub fn util_eval_program_ambient_with_op_table(input: &str, op_table: &im::HashMap<OpSig, (Assoc, NotNan<f64>)>) -> Result<Ambient, SmxError> {
     let tks = Lexer::new(input)
-        .map(|res| res.map_err(|e| e.to_string()))
-        .collect::<Result<Vec<Token>, String>>()?;
-    let expr = Parser::new(tks)
-        .parse_expr_pratt(0.)
-        .map_err(|e| e.to_string())?;
+        .collect::<Result<Vec<Token>, LexerError>>()?;
+    let mut amb = Ambient::default();
+    amb.op_table = op_table.clone();
+    let program = Parser::with_ambient(tks, &amb)
+        .parse_program()?;
+
+    eval_program_ambient_with_initial(program, amb).map_err(|e| e.into())
+}
+
+pub fn util_eval_expr_str(input: &str, amb: &Ambient) -> Result<Value, SmxError> {
+    let tks = Lexer::new(input)
+        .collect::<Result<Vec<Token>, LexerError>>()?;
+    let expr = Parser::with_ambient(tks, amb)
+        .parse_expr_pratt(0.)?;
 
     eval_expr(
         expr,
         &mut Ambient {
             vars: amb.vars.clone(),
             rsrcs: amb.rsrcs.clone(),
-            natives: vec![],
+            natives: amb.natives.clone(),
             custom_resources: amb.custom_resources.clone(),
+            op_table: amb.op_table.clone(),
         },
     )
-        .map_err(|e| e.to_string())
+    .map_err(|e| e.into())
 }

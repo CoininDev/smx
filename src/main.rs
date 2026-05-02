@@ -28,19 +28,48 @@ fn main() {
                 .get(f_flag_pos + 1)
                 .expect("Please, provide a path after `-f`");
             let content = fs::read_to_string(path)
-                .expect(format!("Error reading file {path}")
-                .as_str());
+                .expect(&format!("Error reading file {path}"));
 
-            let tk = tokenize(content.as_str());
+            let tk = match tokenize(content.as_str()) {
+                Ok(tk) => tk,
+                Err(e) => {
+                    let err = smx::error::SmxError::Lexer(e);
+                    let report = if err.has_source_code() {
+                        miette::Report::from(err)
+                    } else {
+                        miette::Report::from(err).with_source_code(content)
+                    };
+                    eprintln!("{:?}", report);
+                    return;
+                }
+            };
             let mut parser = Parser::new(tk);
             let program = match parser.parse_program() {
                 Ok(p) => p,
-                Err(e) => panic!("Parser error: {e}"),
+                Err(e) => {
+                    let err = smx::error::SmxError::Parsing(e);
+                    let report = if err.has_source_code() {
+                        miette::Report::from(err)
+                    } else {
+                        miette::Report::from(err).with_source_code(content)
+                    };
+                    eprintln!("{:?}", report);
+                    return;
+                }
             };
 
             let result = match eval_program(program) {
                 Ok(r) => r,
-                Err(e) => panic!("Evaluation Error: {e:#?}"),
+                Err(e) => {
+                    let err = smx::error::SmxError::Eval(e);
+                    let report = if err.has_source_code() {
+                        miette::Report::from(err)
+                    } else {
+                        miette::Report::from(err).with_source_code(content)
+                    };
+                    eprintln!("{:?}", report);
+                    return;
+                }
             };
 
             println!("result = {result}");
@@ -52,7 +81,7 @@ fn main() {
                 None  => panic!("Erro: Não tem nada na posição 1"),
             };
 
-            let tk = tokenize(content.as_str());
+            let tk = tokenize(content.as_str()).expect("Tokenizer error");
             let mut parser = Parser::new(tk);
             let program = match parser.parse_program() {
                 Ok(p)   => p,
@@ -73,7 +102,7 @@ fn main() {
                 .expect(format!("Error reading file {path}")
                 .as_str());
 
-            let tk = tokenize(content.as_str());
+            let tk = tokenize(content.as_str()).expect("Tokenizer error");
             let mut parser = Parser::new(tk);
             let program = match parser.parse_program() {
                 Ok(p) => p,

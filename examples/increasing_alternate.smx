@@ -6,5 +6,3 @@ increasing_alternate @{IO} = IO.import_smxlib 0:\_.
 : lists.map (\v,i. lists.elaborate (i + 1) v (\_.v) : strings.from_list)
 : strings.from_list
 ;
-
-

@@ -1,0 +1,8 @@
+repeat_y = \self. \f. \p. \qty ~ number @{IO}. 
+    if qty <= 0
+    then 0
+    else f p, self self f p (qty - 1)
+;
+repeat = repeat_y repeat_y;
+
+result @{IO} = repeat (\_. IO.print "Hello world!":\_. 3) nil 4;

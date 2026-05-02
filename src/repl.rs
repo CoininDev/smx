@@ -52,16 +52,21 @@ impl REPL {
                     return false;
                 }
 
-                let tk = self.tokenize(line.as_str());
-                let tk = match tk {
+                let tk = match self.tokenize(line.as_str()) {
                     Ok(t) => t,
                     Err(e) => {
-                        eprintln!("Lexer Error: {e}");
+                        let err = SmxError::Lexer(e);
+                        let report = if err.has_source_code() {
+                            miette::Report::from(err)
+                        } else {
+                            miette::Report::from(err).with_source_code(line.clone())
+                        };
+                        eprintln!("{:?}", report);
                         return false;
                     }
                 };
 
-                let mut parser = Parser::new(tk);
+                let mut parser = Parser::with_ambient(tk.clone(), &self.ambient);
 
                 let assign = parser.parse_assign();
                 let assign_pos = parser.pos;
@@ -71,18 +76,25 @@ impl REPL {
 
                 match (assign, expr) {
                     (Ok(assign), _) => {
-                        #[cfg(debug_assertions)]
-                        println!("(debug)\tAST: {assign:#?}");
-
-                        // eval_resource actively detects and ignores other assigns
                         if let Err(e) = eval_resource(&assign, &mut self.ambient.rsrcs) {
-                            eprintln!("Eval Error (Resource): {e}");
+                            let err = SmxError::Eval(e);
+                            let report = if err.has_source_code() {
+                                miette::Report::from(err)
+                            } else {
+                                miette::Report::from(err).with_source_code(line.clone())
+                            };
+                            eprintln!("{:?}", report);
                             return false;
                         }
                         
-                        // eval_assign actively detects and ignores resources
                         if let Err(e) = eval_assign(assign, &mut self.ambient) {
-                            eprintln!("Eval Error: {e}");
+                            let err = SmxError::Eval(e);
+                            let report = if err.has_source_code() {
+                                miette::Report::from(err)
+                            } else {
+                                miette::Report::from(err).with_source_code(line.clone())
+                            };
+                            eprintln!("{:?}", report);
                             return false;
                         }
                         
@@ -91,13 +103,16 @@ impl REPL {
                     }
 
                     (Err(_a), Ok(expr)) => {
-                        // println!("Assign Err: {}", _a);
-                        #[cfg(debug_assertions)]
-                        println!("(debug)\tAST: {expr:#?}");
                         let res = match eval_expr(expr, &mut self.ambient) {
                             Ok(r) => r,
                             Err(e) => {
-                                eprintln!("Eval Error: {e}");
+                                let err = SmxError::Eval(e);
+                                let report = if err.has_source_code() {
+                                    miette::Report::from(err)
+                                } else {
+                                    miette::Report::from(err).with_source_code(line.clone())
+                                };
+                                eprintln!("{:?}", report);
                                 return false;
                             }
                         };
@@ -106,11 +121,22 @@ impl REPL {
                     }
 
                     (Err(a), Err(b)) => {
-                        // println!("Assign Err: {}", a);
                         if assign_pos >= expr_pos {
-                            println!("Assign Err: {}", a);
+                            let err = SmxError::Parsing(a);
+                            let report = if err.has_source_code() {
+                                miette::Report::from(err)
+                            } else {
+                                miette::Report::from(err).with_source_code(line.clone())
+                            };
+                            eprintln!("{:?}", report);
                         } else {
-                            println!("Expr Err: {}", b);
+                            let err = SmxError::Parsing(b);
+                            let report = if err.has_source_code() {
+                                miette::Report::from(err)
+                            } else {
+                                miette::Report::from(err).with_source_code(line.clone())
+                            };
+                            eprintln!("{:?}", report);
                         }
                     }
                 }
@@ -134,10 +160,6 @@ impl REPL {
             vlex.push(t);
         }
 
-        if cfg!(debug_assertions) {
-            print!("(debug)\tTokens: ");
-            println!("{}", vlex.iter().map(|t| t.to_string()).collect::<Vec<_>>().join(", "));
-        }
         Ok(vlex)
     }
 }

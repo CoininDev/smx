@@ -24,35 +24,35 @@ pub fn builtin_pattern_from_value(v: Value, amb: &Ambient) -> Value {
     fn rec(v: Value, amb: &Ambient) -> Pattern {
         match v {
             Value::Pair(a, b) => Pattern::Pair(Box::new(rec(*a, amb)), Box::new(rec(*b, amb))),
-            Value::Frozen(Expression::Var(x)) => match x.as_slice() {
+            Value::Frozen(Expression { kind: ExprKind::Var(x), span: _ }) => match x.as_slice() {
                 [w] if w == "_" => Pattern::Wildcard,
                 [any] => Pattern::Name(any.into()),
                 _ => Pattern::Wildcard,
             },
-            Value::Frozen(Expression::Operation(op, xs)) if op == "~" => match xs.as_slice() {
-                [Expression::Var(left), Expression::Var(_)]
-                | [Expression::Var(left), Expression::ListType(_)] => Pattern::TypedName(
+            Value::Frozen(Expression { kind: ExprKind::Operation(op, xs), span: _ }) if op == "~" => match xs.as_slice() {
+                [Expression { kind: ExprKind::Var(left), .. }, Expression { kind: ExprKind::Var(_), .. }]
+                | [Expression { kind: ExprKind::Var(left), .. }, Expression { kind: ExprKind::ListType(_), .. }] => Pattern::TypedName(
                     left[0].clone(),
                     eval_pattern_type(&xs[1], amb).unwrap_or(PatternType::Nil),
                 ),
                 _ => Pattern::Wildcard,
             },
-            Value::Frozen(Expression::Environment(body)) => {
+            Value::Frozen(Expression { kind: ExprKind::Environment(body), span: _ }) => {
                 let mut schema = vec![];
                 for Assign(id, _, expr) in body {
-                    match id {
-                        Expression::Var(v) if v.len() == 1 => {
+                    match id.kind {
+            ExprKind::Var(v) if v.len() == 1 => {
                             let name = v[0].clone();
-                            let pat = if let Expression::Nil = expr {
+                            let pat = if let ExprKind::Nil = expr.kind {
                                 Pattern::Name(name.clone())
                             } else {
                                 rec(Value::Frozen(expr), amb)
                             };
                             schema.push((name, pat));
                         }
-                        Expression::Operation(ref op, ref xs) if op == "~" => {
+                        ExprKind::Operation(ref op, ref xs) if op == "~" => {
                             match xs.as_slice() {
-                                [Expression::Var(v), _] if v.len() == 1 => {
+                                [Expression { kind: ExprKind::Var(v), .. }, _] if v.len() == 1 => {
                                     let name = v[0].clone();
                                     let pat = rec(Value::Frozen(id), amb);
                                     schema.push((name, pat));
@@ -233,7 +233,7 @@ impl IBuiltin for ConvertBuiltin {
 
     fn call(&self, arg: Value, _amb: &Ambient) -> EvalResult<Value> {
         match arg {
-            Value::Pair(val, box Value::Frozen(Expression::Var(t))) => match t.as_slice() {
+            Value::Pair(val, box Value::Frozen(Expression { kind: ExprKind::Var(t), span: _ })) => match t.as_slice() {
                 [s] if s == "number" => match *val {
                     Value::Str(s) => {
                         if let Ok(num) = s.parse() {
@@ -307,7 +307,7 @@ impl IBuiltin for ConvertBuiltin {
                     Err(eval_error!(WrongTypes(
                         "convert".into(),
                         PatternType::Frozen,
-                        Value::Frozen(Expression::Var(t))
+                        Value::Frozen(Expression::dummy(ExprKind::Var(t)))
                     )))
                 }
             },

@@ -1,13 +1,32 @@
 use std::fmt;
 use std::str::FromStr;
-use crate::error::LexerError;
+use crate::error::{LexerError, LexerErrorType};
 use strum_macros::Display;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct Span {
+    pub start: usize,
+    pub end: usize,
+    pub line: usize,
+    pub col: usize,
+}
+
+impl Span {
+    pub fn merge(&self, other: &Span) -> Span {
+        Span {
+            start: std::cmp::min(self.start, other.start),
+            end: std::cmp::max(self.end, other.end),
+            line: std::cmp::min(self.line, other.line),
+            col: if self.start <= other.start { self.col } else { other.col },
+        }
+    }
+}
 
 pub struct Lexer {
     text: String,
     pos: usize,
     current_line: usize,
+    current_col: usize,
 }
 
 impl Lexer {
@@ -17,13 +36,14 @@ impl Lexer {
             text,
             pos: 0,
             current_line: 0,
+            current_col: 0,
         }
     }
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Token {
-    pub line: usize,
+    pub span: Span,
     pub token_type: TokenType,
 }
 
@@ -135,23 +155,42 @@ impl Iterator for Lexer {
         let chars: Vec<char>= slice.chars().collect();
         let first_ch_len = chars[0].len_utf8();
         
-        let advance = |this: &mut Lexer, nbytes: usize| {
-            this.pos += nbytes;
-        };
-
+        let start_pos = self.pos;
         let line = self.current_line;
-        let mount_token = |mam: TokenType| {
+        let start_col = self.current_col;
+
+        self.pos += first_ch_len;
+        self.current_col += 1;
+
+        let mount_token = |this: &Lexer, mam: TokenType| {
             Some(Ok(Token {
-                line,
+                span: Span {
+                    start: start_pos,
+                    end: this.pos,
+                    line,
+                    col: start_col,
+                },
                 token_type: mam,
             }))
         };
 
-        advance(self, first_ch_len);
+        let err = |this: &Lexer, errtype: LexerErrorType| {
+            Some(Err(LexerError {
+                errtype,
+                span: Span {
+                    start: start_pos,
+                    end: this.pos,
+                    line,
+                    col: start_col,
+                }.into(),
+            }))
+        };
+
         match chars.as_slice() {
             [' ', ..] | ['\t', ..] => self.next(),
             ['\n', ..] => {
                 self.current_line += 1;
+                self.current_col = 0;
                 self.next()
             }
             ['/', '/', ..] => {
@@ -159,7 +198,8 @@ impl Iterator for Lexer {
                     let next_slice = &self.text[self.pos..];
                     let next_ch = next_slice.chars().next().unwrap();
                     if next_ch != '\n' {
-                        advance(self, next_ch.len_utf8());
+                        self.pos += next_ch.len_utf8();
+                        self.current_col += 1;
                     } else {
                         break;
                     }
@@ -167,18 +207,18 @@ impl Iterator for Lexer {
                 self.next()
             }
 
-            ['ç', ..] => mount_token(TokenType::DebugDot),
-            ['(', ..] => mount_token(TokenType::LParen),
-            [')', ..] => mount_token(TokenType::RParen),
-            ['{', ..] => mount_token(TokenType::LBrace),
-            ['}', ..] => mount_token(TokenType::RBrace),
-            ['[', ..] => mount_token(TokenType::LBrack),
-            [']', ..] => mount_token(TokenType::RBrack),
-            [';', ..] => mount_token(TokenType::EndExpr),
-            ['.', ..] => mount_token(TokenType::Dot),
+            ['ç', ..] => mount_token(self, TokenType::DebugDot),
+            ['(', ..] => mount_token(self, TokenType::LParen),
+            [')', ..] => mount_token(self, TokenType::RParen),
+            ['{', ..] => mount_token(self, TokenType::LBrace),
+            ['}', ..] => mount_token(self, TokenType::RBrace),
+            ['[', ..] => mount_token(self, TokenType::LBrack),
+            [']', ..] => mount_token(self, TokenType::RBrack),
+            [';', ..] => mount_token(self, TokenType::EndExpr),
+            ['.', ..] => mount_token(self, TokenType::Dot),
 
-            ['\'', ..] => mount_token(TokenType::Apostrophe),
-            ['\\', ..] => mount_token(TokenType::Backslash),
+            ['\'', ..] => mount_token(self, TokenType::Apostrophe),
+            ['\\', ..] => mount_token(self, TokenType::Backslash),
  
             [u, ..] if op_alphabet().contains(*u) => {
                 let mut buf = String::from(*u);
@@ -187,12 +227,13 @@ impl Iterator for Lexer {
                     let next_ch = next_slice.chars().next().unwrap();
                     if op_alphabet().contains(next_ch) {
                         buf.push(next_ch);
-                        advance(self, next_ch.len_utf8());
+                        self.pos += next_ch.len_utf8();
+                        self.current_col += 1;
                     } else {
                         break;
                     }
                 }
-                mount_token(TokenType::Op(buf))
+                mount_token(self, TokenType::Op(buf))
             }           
 
             [d, ..] if d.is_ascii_digit() || *d == '.' => {
@@ -206,17 +247,19 @@ impl Iterator for Lexer {
 
                     if next_ch.is_ascii_digit() {
                         buf.push(next_ch);
-                        advance(self, next_ch.len_utf8());
+                        self.pos += next_ch.len_utf8();
+                        self.current_col += 1;
                     } else if next_ch == '.' {
                         if seen_dot {
-                            return Some(Err(LexerError::InvalidNumber(format!(
+                            return err(self, LexerErrorType::InvalidNumber(format!(
                                 "Número '{}' contém múltiplos pontos decimais",
                                 buf
-                            ))));
+                            )));
                         } else {
                             seen_dot = true;
                             buf.push('.');
-                            advance(self, next_ch.len_utf8());
+                            self.pos += next_ch.len_utf8();
+                            self.current_col += 1;
                         }
                     } else {
                         break;
@@ -229,22 +272,23 @@ impl Iterator for Lexer {
                     let next_ch = next_slice.chars().next().unwrap();
                     if next_ch.is_alphanumeric() {
                         suffix.push(next_ch);
-                        advance(self, next_ch.len_utf8());
+                        self.pos += next_ch.len_utf8();
+                        self.current_col += 1;
                     } else {
                         break;
                     }
                 }
 
                 if !suffix.is_empty() {
-                    return mount_token(TokenType::StrictNumber(buf, suffix));
+                    return mount_token(self, TokenType::StrictNumber(buf, suffix));
                 }
 
                 match buf.parse::<f64>() {
-                    Ok(number) => mount_token(TokenType::Number(number)),
-                    Err(e) => Some(Err(LexerError::ParseError(
+                    Ok(number) => mount_token(self, TokenType::Number(number)),
+                    Err(e) => err(self, LexerErrorType::ParseError(
                         buf,
                         format!("Falha ao analisar número: {}", e),
-                    ))),
+                    )),
                 }
             }
 
@@ -255,16 +299,17 @@ impl Iterator for Lexer {
                     let next_ch = next_slice.chars().next().unwrap();
                     if next_ch.is_alphanumeric() || next_ch == '_' {
                         buf.push(next_ch);
-                        advance(self, next_ch.len_utf8());
+                        self.pos += next_ch.len_utf8();
+                        self.current_col += 1;
                     } else {
                         break;
                     }
                 }
 
                 if let Ok(x) = Keyword::from_str(buf.as_str()) {
-                    mount_token(TokenType::Keyword(x))
+                    mount_token(self, TokenType::Keyword(x))
                 } else {
-                    mount_token(TokenType::Ident(buf))
+                    mount_token(self, TokenType::Ident(buf))
                 }
             }
 
@@ -275,18 +320,65 @@ impl Iterator for Lexer {
                     let next_ch = next_slice.chars().next().unwrap();
                     if next_ch != '"' {
                         buf.push(next_ch);
-                        advance(self, next_ch.len_utf8());
+                        self.pos += next_ch.len_utf8();
+                        self.current_col += 1;
                     } else {
-                        advance(self, 1);
+                        self.pos += 1;
+                        self.current_col += 1;
                         break;
                     }
                 }
-                mount_token(TokenType::Str(buf))
+                mount_token(self, TokenType::Str(buf))
             }
 
-            [ch, ..] => Some(Err(LexerError::UnrecognizedChar(*ch))),
+            [ch, ..] => err(self, LexerErrorType::UnrecognizedChar(*ch)),
             &[] => None
         }
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_spans() {
+        let mut lexer = Lexer::new("123 + \"abc\"");
+        
+        let t1 = lexer.next().unwrap().unwrap();
+        assert_eq!(t1.token_type, TokenType::Number(123.0));
+        assert_eq!(t1.span.start, 0);
+        assert_eq!(t1.span.end, 3);
+        assert_eq!(t1.span.line, 0);
+        assert_eq!(t1.span.col, 0);
+
+        let t2 = lexer.next().unwrap().unwrap();
+        assert_eq!(t2.token_type, TokenType::Op("+".into()));
+        assert_eq!(t2.span.start, 4);
+        assert_eq!(t2.span.end, 5);
+        assert_eq!(t2.span.line, 0);
+        assert_eq!(t2.span.col, 4);
+
+        let t3 = lexer.next().unwrap().unwrap();
+        assert_eq!(t3.token_type, TokenType::Str("abc".into()));
+        assert_eq!(t3.span.start, 6);
+        assert_eq!(t3.span.end, 11);
+        assert_eq!(t3.span.line, 0);
+        assert_eq!(t3.span.col, 6);
+    }
+
+    #[test]
+    fn test_multiline_spans() {
+        let mut lexer = Lexer::new("a\nb");
+        
+        let t1 = lexer.next().unwrap().unwrap();
+        assert_eq!(t1.token_type, TokenType::Ident("a".into()));
+        assert_eq!(t1.span.line, 0);
+        assert_eq!(t1.span.col, 0);
+
+        let t2 = lexer.next().unwrap().unwrap();
+        assert_eq!(t2.token_type, TokenType::Ident("b".into()));
+        assert_eq!(t2.span.line, 1);
+        assert_eq!(t2.span.col, 0);
+    }
+}

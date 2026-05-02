@@ -1,110 +1,111 @@
-_length__y = \self. \(l ~ []). \(acc ~ number). eval (
-    l == nil ? 'acc,
-               '(self self (tail l) (acc + 1))
-);
+_length_y = \self. \(l ~ []). \(acc ~ number).
+    if l == nil 
+    then acc
+    else self self (tail l) (acc + 1)
+;
 
-_take__y = \self. \(n ~ number). \(l ~ []). eval (
-    n == 0   ? 'nil,
-    l == nil ? 'nil,
-               '(head l, self self (n - 1) (tail l))
-);
+_take_y = \self. \(n ~ number). \(l ~ []).
+    if      n == 0    then nil
+    else if l == nil  then nil
+    else head l, self self (n - 1) (tail l)
+;
 
-_drop__y = \self. \(n ~ number). \(l ~ []). eval (
-    n == 0   ? 'l,
-    l == nil ? 'l,
-               '(self self (n - 1) (tail l))
-);
+_drop_y = \self. \(n ~ number). \(l ~ []).
+    if      n == 0  then l 
+    else if l == nil then l   
+    else self self (n - 1) (tail l)
+;
 
-_map__y = \self. \(f ~ fn). \(l ~ []). eval (
-    l == nil ? 'nil,
-               '(f (head l), self self f (tail l))
-);
+_map_y = \self. \(f ~ fn). \(l ~ []). 
+    if l == nil 
+    then nil
+    else f (head l), self self f (tail l)
+;
 
-_filter__y = \self. \(f ~ fn). \(l ~ []). eval (
-    l == nil ? 'nil,
-    f (head l) ? '(head l, self self f (tail l)),
-                 '(self self f (tail l))
-);
+_filter_y = \self. \(f ~ fn). \(l ~ []). 
+    if l == nil 
+    then nil 
+    else if f (head l) 
+    then head l, self self f (tail l)
+    else self self f (tail l)
+;
 
-_reduce__y = \self. \(f ~ fn). \(l ~ []). \(acc). eval (
-    l == nil ? 'acc,
-               '(self self f (tail l) ((f acc) (head l)))
-);
+_reduce_y = \self. \(f ~ fn). \(l ~ []). \(acc). 
+    if l == nil 
+    then acc
+    else self self f (tail l) ((f acc) (head l))
+;
 
-_zip__y = \self. \(l1 ~ []). \(l2 ~ []). eval (
-    l1 == nil ? 'nil,
-    l2 == nil ? 'nil,
-                '((head l1, head l2), self self (tail l1) (tail l2))
-);
+_zip_y = \self. \(l1 ~ []). \(l2 ~ []).
+    if l1 == nil then nil
+    else if l2 == nil then nil
+    else (head l1, head l2), self self (tail l1) (tail l2)
+;
 
-_unzip__y = \self. \(l ~ []). eval (
-    l == nil ? 'nil,
-    '(
-        { rest = self self (tail l); }::'(
-            ((l:head:head), head rest),
-            ((l:head:tail), tail rest)
-        )
-    )
-);
+_unzip_y = \self. \(l ~ []).
+    if l == nil then nil
+    else let rest = self self (tail l); in
+        ((l:head:head), head rest),
+        ((l:head:tail), tail rest)
+;
 
-_enumerate__y = \self. \acc ~ number. \l ~ []. eval(
-    l == nil ? 'nil,
-    '( (head l, acc), self self (acc + 1) (tail l) )
-);
+_enumerate_y = \self. \acc ~ number. \l ~ [].
+    if l == nil then nil
+    else (head l, acc), self self (acc + 1) (tail l)
+;
 
-_reverse__y = \self. \l ~ []. \acc ~ []. eval (
-    l == nil ? 'acc,
-    '(self self (tail l) (head l, acc))
-);
+_reverse_y = \self. \l ~ []. \acc ~ []. 
+    if l == nil then acc
+    else self self (tail l) (head l, acc)
+;
 
-_chunks_of__y = \self. \n ~ number. \l ~ []. 
-{
-    take = _take__y _take__y;
-    drop = \(n ~ number). \(l ~ []). _drop__y _drop__y n l;
-}::'(
-eval (
-    l == nil ? 'nil,
-    '(take n l, self self n (drop n l))
-));
+_chunks_of_y = \self. \n ~ number. \l ~ []. 
+let
+    take = _take_y _take_y;
+    drop = \(n ~ number). \(l ~ []). _drop_y _drop_y n l;
+in
+    if l == nil then nil
+    else take n l, self self n (drop n l)
+;
 
-_unnilize__y = \self. \(l ~ []). eval (
-    l == nil      ? 'nil,
-    tail l == nil ? '(head l),
-    '(head l, self self (tail l))
-);
+_unnilize_y = \self. \(l ~ []).
+    if l == nil      then nil
+    else if tail l == nil then head l
+    else head l, self self (tail l)
+;
 
-_nilize__y = \self. \l. eval (
-    l == nil                       ? 'nil,
-    try (tail, l) == {err = true;} ? '(l, nil),
-                                     '(head l, self self (tail l))
-);
+_nilize_y = \self. \l.
+    if l == nil then nil
+    else if try (tail, l) == {err = true;} then l, nil
+    else head l, self self (tail l)
+;
 
-_join__y = \self. \l1. \l2. eval (
-    l1 == nil ? 'l2,
-    l2 == nil ? 'l1,
-                '(head l1, self self (tail l1) l2)
-);
+_join_y = \self. \l1. \l2.
+    if      l1 == nil then l2
+    else if l2 == nil then l1
+    else head l1, self self (tail l1) l2
+;
 
-_elaborate__y = \self. \quantity ~ number. \last_value. \f ~ fn. eval (
-    quantity == 0 ? 'nil,
-    '(last_value, self self (quantity - 1) (f last_value) f)
-);
+_elaborate_y = \self. \quantity ~ number. \last_value. \f ~ fn.
+    if quantity == 0 then nil
+    else last_value, self self (quantity - 1) (f last_value) f
+;
 
 lists = {
-    length = \(l ~ []). _length__y _length__y l 0;
-    reverse = \(l ~ []). _reverse__y _reverse__y l nil;
-    unnilize = _unnilize__y _unnilize__y;
-    nilize = _nilize__y _nilize__y;
-    take = _take__y _take__y;
-    drop = _drop__y _drop__y;
-    join = _join__y _join__y;
-    map = _map__y _map__y;
-    filter = _filter__y _filter__y;
-    reduce = _reduce__y _reduce__y;
-    zip = _zip__y _zip__y;
-    unzip = _unzip__y _unzip__y;
-    chunks_of = _chunks_of__y _chunks_of__y;
-    elaborate = _elaborate__y _elaborate__y;
-    enumerate = _enumerate__y _enumerate__y 0;
+    length = \(l ~ []). _length_y _length_y l 0;
+    reverse = \(l ~ []). _reverse_y _reverse_y l nil;
+    unnilize = _unnilize_y _unnilize_y;
+    nilize = _nilize_y _nilize_y;
+    take = _take_y _take_y;
+    drop = _drop_y _drop_y;
+    join = _join_y _join_y;
+    map = _map_y _map_y;
+    filter = _filter_y _filter_y;
+    reduce = _reduce_y _reduce_y;
+    zip = _zip_y _zip_y;
+    unzip = _unzip_y _unzip_y;
+    chunks_of = _chunks_of_y _chunks_of_y;
+    elaborate = _elaborate_y _elaborate_y;
+    enumerate = _enumerate_y _enumerate_y 0;
     push = \l ~ []. \x. (unnilize l), x, nil;
 };

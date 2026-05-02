@@ -1,4 +1,4 @@
-op left 2 (a :> b) = a : \_. b;
+op left 2.0 (a :> b) = a : \_. b;
 
 
 _smx_path @{IO} = IO.run "echo $SMXLIB_PATH": \x. x.stdout;

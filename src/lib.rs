@@ -1,22 +1,28 @@
 #![feature(box_patterns)]
 
 pub mod ast;
-pub mod io;
 pub mod builtin;
-pub mod eval;
-pub mod value;
 pub mod error;
+pub mod eval;
+pub mod io;
 pub mod lexer;
 pub mod repl;
+pub mod value;
+
+pub use crate::error::SmxError;
 
 use crate::{
-    ast::Parser, eval::{eval_assign, eval_expr, eval_program, eval_resource}, lexer::{Lexer, Token}, value::{Ambient, Value}
+    ast::Parser,
+    error::LexerError,
+    eval::{eval_assign, eval_expr, eval_program, eval_resource},
+    lexer::{Lexer, Token},
+    value::{Ambient, Value},
 };
 
-pub fn eval(code: &str, mut amb: &mut Ambient) -> Result<Value, String> {
-    let tk = tokenize(code);
+pub fn eval(code: &str, mut amb: &mut Ambient) -> Result<Value, SmxError> {
+    let tk = tokenize(code)?;
     let mut parser = Parser::new(tk);
-    
+
     let assign = parser.parse_assign();
     let assign_pos = parser.pos;
     parser.reset();
@@ -25,90 +31,88 @@ pub fn eval(code: &str, mut amb: &mut Ambient) -> Result<Value, String> {
 
     match (assign, expr) {
         (Ok(assign), _) => {
-            #[cfg(debug_assertions)]
-            println!("(debug)\tAST: {assign:#?}");
 
             // eval_resource actively detects and ignores other assigns
-            if let Err(e) = eval_resource(&assign, &mut amb.rsrcs) {
-                return Err(e.to_string());
-            }
-            
+            eval_resource(&assign, &mut amb.rsrcs)?;
+
             // eval_assign actively detects and ignores resources
-            if let Err(e) = eval_assign(assign, &mut amb) {
-                eprintln!("Eval Error: {e}");
-                return Err(e.to_string());
-            }
+            eval_assign(assign, &mut amb)?;
             return Ok(val!());
         }
 
         (Err(_a), Ok(expr)) => {
             // println!("Assign Err: {}", _a);
-            #[cfg(debug_assertions)]
-            println!("(debug)\tAST: {expr:#?}");
-            let res = match eval_expr(expr, &mut amb) {
-                Ok(r) => r,
-                Err(e) => {
-                    eprintln!("Eval Error: {e}");
-                    return Err(e.to_string());
-                }
-            };
+            let res = eval_expr(expr, &mut amb)?;
             println!("= {res}");
             return Ok(res);
         }
 
         (Err(a), Err(b)) => {
-            // println!("Assign Err: {}", a);
             if assign_pos >= expr_pos {
-                println!("Assign Err: {}", a);
+                return Err(a.into());
             } else {
-                println!("Expr Err: {}", b);
+                return Err(b.into());
             }
         }
     }
-    Err("Parsing failed".into())
 }
 
-
-pub fn eval_file(path: &str, amb: &mut Ambient) -> Result<Value, String> {
+pub fn eval_file(path: &str, amb: &mut Ambient) -> Result<Value, SmxError> {
     let content = std::fs::read_to_string(path)
-        .map_err(|e| format!("Error reading file {path}: {e}"))?;
+        .map_err(|e| SmxError::Io(format!("Error reading file {path}: {e}")))?;
 
     eval(&content, amb)
 }
 
-pub fn run_file(path: &str) -> Result<Value, String> {
+pub fn run_file(path: &str) -> Result<Value, SmxError> {
     let content = std::fs::read_to_string(path)
-        .map_err(|e| format!("Error reading file {path}: {e}"))?;
+        .map_err(|e| SmxError::Io(format!("Error reading file {path}: {e}")))?;
 
-    let tk = tokenize(&content);
+    let tk = tokenize(&content)?;
     let mut parser = Parser::new(tk);
-    let program = parser.parse_program()
-        .map_err(|e| format!("Parser error: {e}"))?;
+    let program = parser.parse_program()?;
 
-    eval_program(program)
-        .map_err(|e| format!("Evaluation Error: {e:#?}"))
+    Ok(eval_program(program)?)
 }
 
+pub fn run(content: &str) -> Result<Value, SmxError> {
+    let tk = tokenize(&content)?;
+    let mut parser = Parser::new(tk);
+    let program = parser.parse_program()?;
 
-pub fn tokenize(s: &str) -> Vec<Token> {
+    Ok(eval_program(program)?)
+}
+
+pub fn tokenize(s: &str) -> Result<Vec<Token>, LexerError> {
     let lex = Lexer::new(s);
     let mut vlex = vec![];
     for t in lex {
-        match t {
-            Err(e) => eprintln!("Tokenizer error: {e}"),
-            Ok(token) => vlex.push(token),
-        }
+        vlex.push(t?);
     }
-    vlex
+    Ok(vlex)
 }
 
 #[macro_export]
 macro_rules! val {
-    (nil) => { $crate::value::Value::Nil };
-    () => { $crate::value::Value::Nil };
-    (true) => { $crate::value::Value::Bool(true) };
-    (false) => { $crate::value::Value::Bool(false) };
-    (IO) => { $crate::value::Value::Builtin("IO".into()) };
-    (ambient) => { $crate::value::Ambient::default() };
-    ($n:expr) => { $crate::value::Value::from($n) };
+    (nil) => {
+        $crate::value::Value::Nil
+    };
+    () => {
+        $crate::value::Value::Nil
+    };
+    (true) => {
+        $crate::value::Value::Bool(true)
+    };
+    (false) => {
+        $crate::value::Value::Bool(false)
+    };
+    (IO) => {
+        $crate::value::Value::Builtin("IO".into())
+    };
+    (ambient) => {
+        $crate::value::Ambient::default()
+    };
+    ($n:expr) => {
+        $crate::value::Value::from($n)
+    };
 }
