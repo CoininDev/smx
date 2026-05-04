@@ -380,11 +380,18 @@ result = eval (
         a == 4 ?
         '(3),
         '(a + 1)
-    )
+    );
 ```
 this means that, `then ...` and `else ...` expressions are automatically frozen, and only the selected expression is really evaluated, this makes it safe in tail-call functions.
 
 ---
+
+## REPL
+For convenience, the REPL (accessed by -i flag) already comes with IO and support both assignment and pure expressions, but that's not true in files, while writing a file you should always use an assignment, even an unused one: 
+```smx
+_ = do_something 3;
+_ @{IO} = IO.print "done.";
+```
 
 ## File Extensions
 

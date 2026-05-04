@@ -1,40 +1,54 @@
 use crate::error::{ParsingError, ParsingErrorType};
-use crate::lexer::{Token, TokenType, Span, Keyword};
-use crate::value::{OpSig, Assoc, Ambient};
+use crate::lexer::{Keyword, Span, Token, TokenType};
+use crate::value::{Ambient, Assoc, OpSig};
 use im::{HashMap, hashmap};
 use ordered_float::NotNan;
 use std::fmt::Display;
 use std::str::FromStr;
-use strum_macros::{EnumString, EnumIter};
+use strum_macros::{EnumIter, EnumString};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, EnumString, EnumIter, strum_macros::Display)]
 pub enum NumericType {
-    #[strum(to_string = "f8")] F8,
-    #[strum(to_string = "f16")] F16,
-    #[strum(to_string = "f32")] F32,
-    #[strum(to_string = "f64")] F64,
-    #[strum(to_string = "f128")] F128,
-    #[strum(to_string = "f256")] F256,
-    #[strum(to_string = "i8")] I8,
-    #[strum(to_string = "i16")] I16,
-    #[strum(to_string = "i32")] I32,
-    #[strum(to_string = "i64")] I64,
-    #[strum(to_string = "i128")] I128,
-    #[strum(to_string = "i256")] I256,
-    #[strum(to_string = "u8")] U8,
-    #[strum(to_string = "u16")] U16,
-    #[strum(to_string = "u32")] U32,
-    #[strum(to_string = "u64")] U64,
-    #[strum(to_string = "u128")] U128,
-    #[strum(to_string = "u256")] U256,
+    #[strum(to_string = "f8")]
+    F8,
+    #[strum(to_string = "f16")]
+    F16,
+    #[strum(to_string = "f32")]
+    F32,
+    #[strum(to_string = "f64")]
+    F64,
+    #[strum(to_string = "f128")]
+    F128,
+    #[strum(to_string = "f256")]
+    F256,
+    #[strum(to_string = "i8")]
+    I8,
+    #[strum(to_string = "i16")]
+    I16,
+    #[strum(to_string = "i32")]
+    I32,
+    #[strum(to_string = "i64")]
+    I64,
+    #[strum(to_string = "i128")]
+    I128,
+    #[strum(to_string = "i256")]
+    I256,
+    #[strum(to_string = "u8")]
+    U8,
+    #[strum(to_string = "u16")]
+    U16,
+    #[strum(to_string = "u32")]
+    U32,
+    #[strum(to_string = "u64")]
+    U64,
+    #[strum(to_string = "u128")]
+    U128,
+    #[strum(to_string = "u256")]
+    U256,
 }
 #[derive(Debug, Clone)]
 pub struct Program {
     pub body: Vec<Assign>,
-}
-
-fn mount_num(num: f64) -> ParseResult<NotNan<f64>> {
-    NotNan::new(num).map_err(|e| ParsingError::new(ParsingErrorType::NotNanError(e.to_string()), None))
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -69,11 +83,16 @@ impl Expression {
     pub fn new(kind: ExprKind, span: crate::lexer::Span) -> Self {
         Self { kind, span }
     }
-    
+
     pub fn dummy(kind: ExprKind) -> Self {
         Self {
             kind,
-            span: crate::lexer::Span { start: 0, end: 0, line: 0, col: 0 }
+            span: crate::lexer::Span {
+                start: 0,
+                end: 0,
+                line: 0,
+                col: 0,
+            },
         }
     }
 }
@@ -99,7 +118,9 @@ impl Display for ExprKind {
                 } else {
                     write!(f, "\\{arg} @{{")?;
                     for (i, r) in res.iter().enumerate() {
-                        if i > 0 { write!(f, ", ")?; }
+                        if i > 0 {
+                            write!(f, ", ")?;
+                        }
                         write!(f, "{}", r)?;
                     }
                     write!(f, "}}. {body}")
@@ -223,7 +244,8 @@ impl Parser {
     pub fn with_ambient(tokens: Vec<Token>, amb: &Ambient) -> Self {
         let mut p = Self::new(tokens);
         for (sig, (assoc, prec)) in &amb.op_table {
-            p.op_table.insert(sig.clone(), Operator::new(*assoc, prec.into_inner() as f32));
+            p.op_table
+                .insert(sig.clone(), Operator::new(*assoc, prec.into_inner() as f32));
         }
         p
     }
@@ -248,12 +270,22 @@ impl Parser {
     }
 
     pub fn peek_span(&self, p: usize) -> crate::lexer::Span {
-        self.peek(p).map(|t| t.span).unwrap_or(crate::lexer::Span { start: 0, end: 0, line: 0, col: 0 })
+        self.peek(p).map(|t| t.span).unwrap_or(crate::lexer::Span {
+            start: 0,
+            end: 0,
+            line: 0,
+            col: 0,
+        })
     }
 
     pub fn last_span(&self) -> crate::lexer::Span {
         if self.pos == 0 || self.pos - 1 >= self.tokens.len() {
-            crate::lexer::Span { start: 0, end: 0, line: 0, col: 0 }
+            crate::lexer::Span {
+                start: 0,
+                end: 0,
+                line: 0,
+                col: 0,
+            }
         } else {
             self.tokens[self.pos - 1].span
         }
@@ -287,7 +319,10 @@ impl Parser {
                 ParsingErrorType::Expected(expected.to_string(), token.token_type.to_string()),
                 Some(token.span),
             )),
-            None => Err(ParsingError::new(ParsingErrorType::UnexpectedEof, Some(self.last_span()))),
+            None => Err(ParsingError::new(
+                ParsingErrorType::UnexpectedEof,
+                Some(self.last_span()),
+            )),
         }
     }
 }
@@ -343,7 +378,7 @@ impl Parser {
                     return Ok(Assign(
                         Expression::new(ExprKind::Var(vec!["__TYPE__".into(), name]), start_span),
                         vec![],
-                        expr
+                        expr,
                     ));
                 }
                 _ => {}
@@ -430,7 +465,9 @@ impl Parser {
             loop {
                 let ident = match self.peek_type(0) {
                     Some(TokenType::Ident(x)) => x.clone(),
-                    Some(tok) => return Err(self.error(ParsingErrorType::Unexpected(tok.to_string()))),
+                    Some(tok) => {
+                        return Err(self.error(ParsingErrorType::Unexpected(tok.to_string())));
+                    }
                     None => return Err(self.last_error(ParsingErrorType::UnexpectedEof)),
                 };
 
@@ -446,7 +483,10 @@ impl Parser {
                 }
             }
         }
-        Ok(Expression::new(ExprKind::Var(buf), start_span.merge(&self.last_span())))
+        Ok(Expression::new(
+            ExprKind::Var(buf),
+            start_span.merge(&self.last_span()),
+        ))
     }
 
     pub fn parse_keyword(&mut self, k: Keyword) -> ParseResult<Expression> {
@@ -455,12 +495,21 @@ impl Parser {
             Keyword::True => Ok(Expression::new(ExprKind::Bool(true), span)),
             Keyword::False => Ok(Expression::new(ExprKind::Bool(false), span)),
             Keyword::Nil => Ok(Expression::new(ExprKind::Nil, span)),
-            Keyword::Type => Err(self.last_error(ParsingErrorType::InvalidExpression("Keyword 'type' cannot be used as an expression".into()))),
+            Keyword::Type => Err(self.last_error(ParsingErrorType::InvalidExpression(
+                "Keyword 'type' cannot be used as an expression".into(),
+            ))),
             Keyword::Let => self.parse_let(),
             Keyword::If => self.parse_if(),
-            Keyword::Then => Err(self.last_error(ParsingErrorType::InvalidExpression("Unexpected 'then' keyword (should only appear after 'if')".into()))),
-            Keyword::Else => Err(self.last_error(ParsingErrorType::InvalidExpression("Unexpected 'else' keyword (should only appear after 'then' in an 'if' expression)".into()))),
-            Keyword::In => Err(self.last_error(ParsingErrorType::InvalidExpression("Unexpected 'in' keyword (should only appear in a 'let' expression)".into()))),
+            Keyword::Then => Err(self.last_error(ParsingErrorType::InvalidExpression(
+                "Unexpected 'then' keyword (should only appear after 'if')".into(),
+            ))),
+            Keyword::Else => Err(self.last_error(ParsingErrorType::InvalidExpression(
+                "Unexpected 'else' keyword (should only appear after 'then' in an 'if' expression)"
+                    .into(),
+            ))),
+            Keyword::In => Err(self.last_error(ParsingErrorType::InvalidExpression(
+                "Unexpected 'in' keyword (should only appear in a 'let' expression)".into(),
+            ))),
         }
     }
 
@@ -470,7 +519,7 @@ impl Parser {
         let start_span = self.last_span();
         // Parse assignments until we hit 'in'
         let mut assigns = vec![];
-        
+
         loop {
             // Check if we hit 'in'
             if self.peek_type(0) == Some(&TokenType::Keyword(Keyword::In)) {
@@ -487,7 +536,11 @@ impl Parser {
                 let expr = self.parse_expr_pratt(0.)?;
                 assigns.push(Assign(id, resources, expr));
             } else {
-                assigns.push(Assign(id, resources, Expression::new(ExprKind::Nil, self.last_span())));
+                assigns.push(Assign(
+                    id,
+                    resources,
+                    Expression::new(ExprKind::Nil, self.last_span()),
+                ));
             }
 
             self.expect(TokenType::EndExpr)?;
@@ -497,9 +550,18 @@ impl Parser {
         let body_expr = self.parse_expr_pratt(0.)?;
 
         // Desugar to: {assigns}::'(body_expr)
-        let env = Expression::new(ExprKind::Environment(assigns), start_span.merge(&self.last_span()));
-        let frozen_body = Expression::new(ExprKind::Frozen(Box::new(body_expr)), start_span.merge(&self.last_span()));
-        Ok(Expression::new(ExprKind::Operation("::".into(), vec![env, frozen_body]), start_span.merge(&self.last_span())))
+        let env = Expression::new(
+            ExprKind::Environment(assigns),
+            start_span.merge(&self.last_span()),
+        );
+        let frozen_body = Expression::new(
+            ExprKind::Frozen(Box::new(body_expr)),
+            start_span.merge(&self.last_span()),
+        );
+        Ok(Expression::new(
+            ExprKind::Operation("::".into(), vec![env, frozen_body]),
+            start_span.merge(&self.last_span()),
+        ))
     }
 
     /// Parse: if <cond> then <expr1> else <expr2>
@@ -536,15 +598,33 @@ impl Parser {
         let else_expr = self.parse_expr_pratt(0.)?;
 
         // Desugar to: eval (cond ? '(then_expr), '(else_expr))
-        let frozen_then = Expression::new(ExprKind::Frozen(Box::new(then_expr)), start_span.merge(&self.last_span()));
-        let frozen_else = Expression::new(ExprKind::Frozen(Box::new(else_expr)), start_span.merge(&self.last_span()));
-        let choice_pair = Expression::new(ExprKind::Operation(",".into(), vec![frozen_then, frozen_else]), start_span.merge(&self.last_span()));
-        let cond_choice = Expression::new(ExprKind::Operation("?".into(), vec![cond, choice_pair]), start_span.merge(&self.last_span()));
-        
-        Ok(Expression::new(ExprKind::Application(
-            Box::new(Expression::new(ExprKind::Var(vec!["eval".into()]), start_span.merge(&self.last_span()))),
-            Box::new(cond_choice),
-        ), start_span.merge(&self.last_span())))
+        let frozen_then = Expression::new(
+            ExprKind::Frozen(Box::new(then_expr)),
+            start_span.merge(&self.last_span()),
+        );
+        let frozen_else = Expression::new(
+            ExprKind::Frozen(Box::new(else_expr)),
+            start_span.merge(&self.last_span()),
+        );
+        let choice_pair = Expression::new(
+            ExprKind::Operation(",".into(), vec![frozen_then, frozen_else]),
+            start_span.merge(&self.last_span()),
+        );
+        let cond_choice = Expression::new(
+            ExprKind::Operation("?".into(), vec![cond, choice_pair]),
+            start_span.merge(&self.last_span()),
+        );
+
+        Ok(Expression::new(
+            ExprKind::Application(
+                Box::new(Expression::new(
+                    ExprKind::Var(vec!["eval".into()]),
+                    start_span.merge(&self.last_span()),
+                )),
+                Box::new(cond_choice),
+            ),
+            start_span.merge(&self.last_span()),
+        ))
     }
 
     pub fn parse_pattern(&mut self) -> ParseResult<Expression> {
@@ -563,7 +643,10 @@ impl Parser {
         self.expect(TokenType::Dot)?;
         let body = self.parse_expr_pratt(0.)?;
 
-        Ok(Expression::new(ExprKind::Lambda(Box::new(param), Box::new(body), resources), start_span.merge(&self.last_span())))
+        Ok(Expression::new(
+            ExprKind::Lambda(Box::new(param), Box::new(body), resources),
+            start_span.merge(&self.last_span()),
+        ))
     }
 
     pub fn parse_env(&mut self) -> ParseResult<Expression> {
@@ -578,13 +661,20 @@ impl Parser {
                 let expr = self.parse_expr_pratt(0.)?;
                 body.push(Assign(id, resources, expr));
             } else {
-                body.push(Assign(id, resources, Expression::new(ExprKind::Nil, self.last_span())));
+                body.push(Assign(
+                    id,
+                    resources,
+                    Expression::new(ExprKind::Nil, self.last_span()),
+                ));
             }
 
             self.expect(TokenType::EndExpr)?;
         }
         self.next();
-        Ok(Expression::new(ExprKind::Environment(body), start_span.merge(&self.last_span())))
+        Ok(Expression::new(
+            ExprKind::Environment(body),
+            start_span.merge(&self.last_span()),
+        ))
     }
 
     pub fn parse_op(&mut self) -> ParseResult<Assign> {
@@ -618,18 +708,16 @@ impl Parser {
         self.expect(TokenType::LParen)?;
         let op_sig = match self.peek_type(0) {
             //infix
-            Some(TokenType::Ident(_)) => {
-                match self.peek_type(1) {
-                    Some(TokenType::Op(x)) => OpSig::Infix(x.clone()),
-                    Some(other) => {
-                        return Err(self.error(ParsingErrorType::Expected(
-                            String::from("some op declaration, example:\"(a +*+ b)\", \"($! a)\""),
-                            other.to_string(),
-                        )));
-                    }
-                    None => return Err(self.last_error(ParsingErrorType::UnexpectedEof)),
+            Some(TokenType::Ident(_)) => match self.peek_type(1) {
+                Some(TokenType::Op(x)) => OpSig::Infix(x.clone()),
+                Some(other) => {
+                    return Err(self.error(ParsingErrorType::Expected(
+                        String::from("some op declaration, example:\"(a +*+ b)\", \"($! a)\""),
+                        other.to_string(),
+                    )));
                 }
-            }
+                None => return Err(self.last_error(ParsingErrorType::UnexpectedEof)),
+            },
             //prefix
             Some(TokenType::Op(x)) => OpSig::Prefix(x.clone()),
             Some(other) => {
@@ -648,15 +736,32 @@ impl Parser {
                 let param2 = self.parse_term()?;
 
                 let p_span = param1.span.merge(&param2.span);
-                let params = Expression::new(ExprKind::Operation(",".into(), vec![param1, param2]), p_span);
+                let params = Expression::new(
+                    ExprKind::Operation(",".into(), vec![param1, param2]),
+                    p_span,
+                );
 
-                Expression::new(ExprKind::Lambda(Box::new(params), Box::new(Expression::new(ExprKind::Nil, self.last_span())), vec![]), start_span)
+                Expression::new(
+                    ExprKind::Lambda(
+                        Box::new(params),
+                        Box::new(Expression::new(ExprKind::Nil, self.last_span())),
+                        vec![],
+                    ),
+                    start_span,
+                )
             }
             OpSig::Prefix(_) => {
                 self.next();
                 let param = self.parse_term()?;
 
-                Expression::new(ExprKind::Lambda(Box::new(param), Box::new(Expression::new(ExprKind::Nil, self.last_span())), vec![]), start_span)
+                Expression::new(
+                    ExprKind::Lambda(
+                        Box::new(param),
+                        Box::new(Expression::new(ExprKind::Nil, self.last_span())),
+                        vec![],
+                    ),
+                    start_span,
+                )
             }
         };
 
@@ -664,7 +769,8 @@ impl Parser {
         self.expect(TokenType::Op("=".into()))?;
 
         let prec_f32 = prec as f32;
-        let prec_notnan = NotNan::new(prec).map_err(|e| self.error(ParsingErrorType::Unexpected(e.to_string())))?;
+        let prec_notnan = NotNan::new(prec)
+            .map_err(|e| self.error(ParsingErrorType::Unexpected(e.to_string())))?;
 
         let custom_op_table = hashmap! {op_sig.clone() => Operator::new(assoc.clone(), prec_f32)};
         let body = self.parse_expr_pratt_custom_op_table(custom_op_table, 0.)?;
@@ -678,10 +784,17 @@ impl Parser {
         );
 
         let res = match res.kind {
-            ExprKind::Lambda(param, _, _) => Expression::new(ExprKind::Lambda(param, Box::new(body), vec![]), start_span.merge(&self.last_span())),
+            ExprKind::Lambda(param, _, _) => Expression::new(
+                ExprKind::Lambda(param, Box::new(body), vec![]),
+                start_span.merge(&self.last_span()),
+            ),
             _ => unreachable!(),
         };
-        Ok(Assign(Expression::new(ExprKind::OpSigVar(op_sig, assoc, prec_notnan), start_span), vec![], res))
+        Ok(Assign(
+            Expression::new(ExprKind::OpSigVar(op_sig, assoc, prec_notnan), start_span),
+            vec![],
+            res,
+        ))
     }
 
     pub fn parse_term(&mut self) -> ParseResult<Expression> {
@@ -690,14 +803,20 @@ impl Parser {
             Some(Token {
                 token_type: TokenType::Number(n),
                 ..
-            }) => ExprKind::Num(NotNan::new(n).map_err(|e| self.error(ParsingErrorType::Unexpected(e.to_string())))?),
+            }) => ExprKind::Num(
+                NotNan::new(n)
+                    .map_err(|e| self.error(ParsingErrorType::Unexpected(e.to_string())))?,
+            ),
 
             Some(Token {
                 token_type: TokenType::StrictNumber(n, s),
                 ..
             }) => {
-                let t = NumericType::from_str(&s)
-                    .map_err(|_| self.last_error(ParsingErrorType::InvalidExpression(format!("Invalid numeric suffix: {s}"))))?;
+                let t = NumericType::from_str(&s).map_err(|_| {
+                    self.last_error(ParsingErrorType::InvalidExpression(format!(
+                        "Invalid numeric suffix: {s}"
+                    )))
+                })?;
                 ExprKind::StrictNum(t, n)
             }
 
@@ -747,10 +866,12 @@ impl Parser {
                         expr.span = start_span.merge(&self.last_span());
                         return Ok(expr);
                     }
-                    other => return Err(self.error(ParsingErrorType::Expected(
-                        ")".to_string(),
-                        format!("{:?}", other.map(|t| t.token_type)),
-                    ))),
+                    other => {
+                        return Err(self.error(ParsingErrorType::Expected(
+                            ")".to_string(),
+                            format!("{:?}", other.map(|t| t.token_type)),
+                        )));
+                    }
                 }
             }
 
@@ -769,7 +890,10 @@ impl Parser {
             }) => {
                 if self.peek_type(0) == Some(&TokenType::RBrack) {
                     self.next();
-                    return Ok(Expression::new(ExprKind::ListType(None), start_span.merge(&self.last_span())));
+                    return Ok(Expression::new(
+                        ExprKind::ListType(None),
+                        start_span.merge(&self.last_span()),
+                    ));
                 }
                 let expr = self.parse_expr_pratt(0.)?;
                 match self.next() {
@@ -777,17 +901,21 @@ impl Parser {
                         token_type: TokenType::RBrack,
                         ..
                     }) => ExprKind::ListType(Some(Box::new(expr))),
-                    other => return Err(self.error(ParsingErrorType::Expected(
-                        "]".to_string(),
-                        format!("{:?}", other.map(|t| t.token_type)),
-                    ))),
+                    other => {
+                        return Err(self.error(ParsingErrorType::Expected(
+                            "]".to_string(),
+                            format!("{:?}", other.map(|t| t.token_type)),
+                        )));
+                    }
                 }
             }
 
-            Some(token) => return Err(self.last_error(ParsingErrorType::InvalidExpression(format!(
-                "Unexpected token on parse_term: {:?}",
-                token.token_type
-            )))),
+            Some(token) => {
+                return Err(self.last_error(ParsingErrorType::InvalidExpression(format!(
+                    "Unexpected token on parse_term: {:?}",
+                    token.token_type
+                ))));
+            }
             None => return Err(self.last_error(ParsingErrorType::UnexpectedEof)),
         };
 
@@ -836,12 +964,18 @@ impl Parser {
             if op == "<APPLY>" {
                 let rhs = self.parse_expr_pratt(bp_r)?;
                 let start_span = lhs.span;
-                lhs = Expression::new(ExprKind::Application(Box::new(lhs), Box::new(rhs)), start_span.merge(&self.last_span()));
+                lhs = Expression::new(
+                    ExprKind::Application(Box::new(lhs), Box::new(rhs)),
+                    start_span.merge(&self.last_span()),
+                );
             } else {
                 self.next();
                 let rhs = self.parse_expr_pratt(bp_r)?;
                 let start_span = lhs.span;
-                lhs = Expression::new(ExprKind::Operation(op.to_owned(), vec![lhs, rhs]), start_span.merge(&self.last_span()));
+                lhs = Expression::new(
+                    ExprKind::Operation(op.to_owned(), vec![lhs, rhs]),
+                    start_span.merge(&self.last_span()),
+                );
             }
         }
 
@@ -860,7 +994,7 @@ mod tests {
         let tokens = tokenize(code).unwrap();
         let mut parser = Parser::new(tokens);
         let expr = parser.parse_expr_pratt(0.0).unwrap();
-        
+
         // "1 + 2 * 3" should cover from index 0 to 9
         assert_eq!(expr.span.start, 0);
         assert_eq!(expr.span.end, 9);
@@ -872,7 +1006,7 @@ mod tests {
         let tokens = tokenize(code).unwrap();
         let mut parser = Parser::new(tokens);
         let expr = parser.parse_expr_pratt(0.0).unwrap();
-        
+
         assert_eq!(expr.span.start, 0);
         assert_eq!(expr.span.end, 7);
     }
@@ -883,7 +1017,7 @@ mod tests {
         let tokens = tokenize(code).unwrap();
         let mut parser = Parser::new(tokens);
         let expr = parser.parse_expr_pratt(0.0).unwrap();
-        
+
         assert_eq!(expr.span.start, 0);
         assert_eq!(expr.span.end, 16);
     }

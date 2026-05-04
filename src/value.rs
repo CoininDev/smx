@@ -1,11 +1,9 @@
 use crate::{ast::*, eval::*};
-use im::HashMap;
 use num_bigint::{BigInt, BigUint};
 use ordered_float::NotNan;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json;
 use std::cmp::Ordering;
-use std::collections::HashMap as StdHashMap;
 use std::{
     any::Any,
     fmt::Debug,

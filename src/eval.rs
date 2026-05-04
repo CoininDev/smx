@@ -178,7 +178,154 @@ fn is_builtin_res(name: &str) -> bool {
     ].contains(&name)
 }
 
+
+pub enum Thunk {
+    Done(Value),
+    Eval { expr: Expression, new_amb: Box<Ambient>, baseline_vars: Environment },
+    Apply(Value, Value, Box<Ambient>),
+    EvalRightOfComma(Value, Expression, Box<Ambient>),
+}
+
+pub fn resolve_thunk(mut thunk: Thunk, outer_amb: &mut Ambient) -> EvalResult<Value> {
+    let mut accumulated_exports = HashMap::new();
+    let mut comma_stack = Vec::new();
+    loop {
+        match thunk {
+            Thunk::Done(val) => {
+                if let Some(left_val) = comma_stack.pop() {
+                    thunk = Thunk::Done(Value::Pair(Box::new(left_val), Box::new(val)));
+                    continue;
+                }
+                for (k, v) in accumulated_exports {
+                    outer_amb.vars.insert(k, v);
+                }
+                return Ok(val);
+            }
+            Thunk::Eval { expr, mut new_amb, baseline_vars } => {
+                thunk = eval_step(expr, &mut new_amb)?;
+                for (k, v) in new_amb.vars.clone() {
+                    if !baseline_vars.contains_key(&k) {
+                        accumulated_exports.insert(k, v);
+                    }
+                }
+            }
+            Thunk::Apply(f, x, mut new_amb) => {
+                thunk = apply_step(f, x, &mut new_amb)?;
+            }
+            Thunk::EvalRightOfComma(left_val, right_expr, mut right_amb) => {
+                comma_stack.push(left_val);
+                thunk = eval_step(right_expr, &mut right_amb)?;
+            }
+        }
+    }
+}
+
 pub fn eval_expr(e: Expression, amb: &mut Ambient) -> EvalResult<Value> {
+    let thunk = eval_step(e, amb)?;
+    resolve_thunk(thunk, amb)
+}
+
+pub fn eval_step(e: Expression, amb: &mut Ambient) -> EvalResult<Thunk> {
+    let span = e.span.clone();
+    let res = match &e.kind {
+        ExprKind::Application(f, x) => {
+            return apply_step(
+                eval_expr((**f).clone(), amb)?,
+                eval_expr((**x).clone(), amb)?,
+                amb
+            ).map_err(|err| err.with_span(span));
+        }
+        ExprKind::Operation(op, exprs) => {
+            return eval_operation_step(op.clone(), exprs.clone(), amb).map_err(|err| err.with_span(span));
+        }
+        _ => eval_expr_base(e, amb).map(Thunk::Done),
+    };
+    res.map_err(|err| err.with_span(span))
+}
+
+pub fn eval_operation_step(op: String, exprs: Vec<Expression>, amb: &mut Ambient) -> EvalResult<Thunk> {
+    let op_clone = op.clone();
+    let res = match op.as_str() {
+        "," => match exprs.as_slice() {
+            [left, right] => {
+                let left_val = eval_expr(left.clone(), amb)?;
+                Ok(Thunk::EvalRightOfComma(left_val, right.clone(), Box::new(amb.clone())))
+            }
+            _ => Err(eval_error!(InvalidSizeOfArgsFor(",".to_string()))),
+        },
+        ":" => match exprs.as_slice() {
+            [left, right] => match (eval_expr(left.clone(), amb)?, eval_expr(right.clone(), amb)?) {
+                (a, Value::Lambda(_, _, _, _)) => apply_step(eval_expr(right.clone(), amb)?, a, amb),
+                (a, Value::Builtin(_)) => apply_step(eval_expr(right.clone(), amb)?, a, amb),
+                _ => Err(eval_error!(WrongTypes(":".to_string(), 
+                            PatternType::List(vec![PatternType::Lambda]),
+                            Value::Pair(Box::new(eval_expr(left.clone(), amb)?), Box::new(eval_expr(right.clone(), amb)?))))),
+            }
+            _ => Err(eval_error!(InvalidSizeOfArgsFor(":".to_string()))),
+        },
+        _ => eval_operation(op.clone(), exprs, amb).map(Thunk::Done),
+    };
+    res.map_err(|mut e| {
+        e.call_stack.push(op_clone);
+        e
+    })
+}
+
+pub fn apply_builtin_step(x: &str, arg: Value, amb: &mut Ambient) -> EvalResult<Thunk> {
+    if x == "eval" {
+        return match arg {
+            Value::Frozen(frozen) => Ok(Thunk::Eval {
+                expr: frozen,
+                new_amb: Box::new(amb.clone()),
+                baseline_vars: amb.vars.clone(),
+            }),
+            Value::Str(text) => crate::io::util_eval_expr_str(text.as_str(), amb)
+                .map(Thunk::Done)
+                .map_err(|e| eval_error!(GenericError(e.to_string()))),
+            other => Err(eval_error!(WrongTypes("eval".into(), PatternType::Frozen, other))),
+        };
+    }
+    apply_builtin(x, arg, amb).map(Thunk::Done)
+}
+
+
+
+pub fn apply_step(func: Value, arg: Value, amb: &mut Ambient) -> EvalResult<Thunk> {
+    let func_clone = func.clone();
+    let (param, body, cap_env, resources) = match func {
+        Value::Lambda(param, body, cap_env, resources) => (param, body, cap_env, resources),
+        Value::Builtin(x) => return apply_builtin_step(&x, arg, amb),
+        _ => return Err(eval_error!(NonFunctionApplication(func))),
+    };
+    let env_pat = eval_pattern_pair(param, arg)?;
+    let env_pat = env_pat.union(hashmap!{"__self".into() => func_clone});
+    
+    let mut vars2 = cap_env;
+    for r in resources {
+        if let Some(val) = amb.vars.get(&r) {
+            vars2.insert(r.clone(), val.clone());
+        } else {
+            return Err(eval_error!(ResourceNotProvided(r)));
+        }
+    }
+    vars2.extend(env_pat);
+    
+    let new_amb = Ambient {
+        vars: vars2.clone(),
+        rsrcs: amb.rsrcs.clone(),
+        natives: amb.natives.clone(),
+        custom_resources: amb.custom_resources.clone(),
+        op_table: amb.op_table.clone(),
+    };
+    
+    Ok(Thunk::Eval {
+        expr: body,
+        new_amb: Box::new(new_amb),
+        baseline_vars: vars2,
+    })
+}
+
+pub fn eval_expr_base(e: Expression, amb: &mut Ambient) -> EvalResult<Value> {
     let span = e.span;
     let res = match e.kind {
             ExprKind::Var(v) => {
@@ -793,7 +940,7 @@ pub fn eval_operation(op: String, exprs: Vec<Expression>, amb: &mut Ambient)
             [left, right] => match (eval(left)?, eval(right)?) {
                 (Value::Environment(env), Value::Frozen(e)) => {
                     eval_expr(e, &mut Ambient {
-                        vars: env,
+                        vars: env.union(amb_clone.vars.clone()),
                         rsrcs: amb_clone.rsrcs.clone(),
                         natives: amb_clone.natives.clone(),
                         custom_resources: amb_clone.custom_resources.clone(),

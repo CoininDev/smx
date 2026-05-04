@@ -62,7 +62,7 @@ _reverse_y = \self. \l ~ []. \acc ~ [].
 _chunks_of_y = \self. \n ~ number. \l ~ []. 
 let
     take = _take_y _take_y;
-    drop = \(n ~ number). \(l ~ []). _drop_y _drop_y n l;
+    drop = _drop_y _drop_y;
 in
     if l == nil then nil
     else take n l, self self n (drop n l)

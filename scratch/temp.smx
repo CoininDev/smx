@@ -1,8 +1,2 @@
-repeat_y = \self. \f. \p. \qty ~ number @{IO}. 
-    if qty <= 0
-    then 0
-    else f p, self self f p (qty - 1)
-;
-repeat = repeat_y repeat_y;
+_ @{IO} = IO.import_smxlib 0;
 
-result @{IO} = repeat (\_. IO.print "Hello world!":\_. 3) nil 4;
