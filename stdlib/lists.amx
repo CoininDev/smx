@@ -30,7 +30,7 @@ _filter_y = \self. \(f ~ fn). \(l ~ []).
     else self self f (tail l)
 ;
 
-_reduce_y = \self. \(f ~ fn). \(l ~ []). \(acc). 
+_reduce_y = \self. \(f ~ fn). \acc. \(l ~ []).
     if l == nil 
     then acc
     else self self f (tail l) ((f acc) (head l))

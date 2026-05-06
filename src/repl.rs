@@ -34,7 +34,6 @@ impl REPL {
                     println!("Bye bye!");
                     return true;
                 }
-                
                 if line == "all" {
                     for (k,v) in &self.ambient.vars {
                         println!("{k} = {v};");
