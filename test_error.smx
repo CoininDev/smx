@@ -1,3 +1,0 @@
-f = \x. x + z;
-g = \y. f y;
-result = g 10;
