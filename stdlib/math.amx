@@ -14,12 +14,11 @@ pow = \x. \y. x ** y;
 mod = \x. \y. x % y;
 
 // Basic Functions
-abs = \x. x < 0 ? -x, x;
-signum = \x. 
-    x > 0 ? 1, 
-    x < 0 ? -1, 
-    0
-;
+// abs = \x. if x < 0 then -x else x;
+// signum = \x.
+//    if      x > 0 then 1
+//    else if x < 0 then -1
+//    else 0;
 
 max = \x. \y. x > y ? x, y;
 min = \x. \y. x < y ? x, y;

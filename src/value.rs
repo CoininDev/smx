@@ -38,6 +38,7 @@ impl Ambient {
         self.rsrcs.extend(other.rsrcs.clone());
         self.natives.extend(other.natives.clone());
         self.custom_resources.extend(other.custom_resources.clone());
+        self.op_table.extend(other.op_table.clone());
     }
 
     pub fn eject(&mut self, other: &Ambient) {
@@ -46,6 +47,9 @@ impl Ambient {
         }
         for k in other.rsrcs.keys() {
             self.rsrcs.remove(k);
+        }
+        for k in other.op_table.keys() {
+            self.op_table.remove(k);
         }
         // Note: not ejecting natives or custom_resources, as they might be shared
     }

@@ -9,7 +9,7 @@ _take__y = \self. \n ~number. \s ~string. eval (
                '(head s + self self (n - 1) (tail s) )
 );
 
-_to_list_rev__y = \self. \s ~string. \(acc ~ []). eval (
+_to_list_rev__y = \self. \s ~string. \acc. eval (
     s == "" ? 'acc,
               '(self self (tail s) (head s, acc))
 );
@@ -25,12 +25,12 @@ _to_list__y = \self. \s ~string. eval (
               '(head s, self self (tail s))
 );
 
-_from_list__y = \self. \l ~[string]. eval (
+_from_list__y = \self. \l. eval (
     l == nil ? '(""),
                '(head l + self self (tail l) )
 );
 
-_join__y = \self. \sep ~string. \l ~[string]. \first ~bool. eval (
+_join__y = \self. \sep ~string. \l. \first ~bool. eval (
     l == nil ? '(""),
     first    ? '(head l + self self (tail l) ),
                '(sep + head l + self self (tail l))
@@ -49,7 +49,7 @@ _contains__y = \self. \s ~string. \n ~string. eval (
     'false
 );
 
-_from_ascii__y = \self. \l ~[number]. 
+_from_ascii__y = \self. \l. 
 {
     drop = _drop__y _drop__y;
     seq = " !'#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\]^_`abcdefghijklmnopqrstuvwxyz{|}~";

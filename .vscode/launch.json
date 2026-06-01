@@ -1,0 +1,13 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "type": "lldb",
+      "request": "launch",
+      "name": "Debug smx",
+      "program": "${workspaceFolder}/target/debug/smx",
+      "args": ["-p", "l ~ [string | number] = 1, 2;"],
+      "cwd": "${workspaceFolder}"
+    }
+  ]
+}

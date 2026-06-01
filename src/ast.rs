@@ -1,7 +1,7 @@
 use crate::error::{ParsingError, ParsingErrorType};
 use crate::lexer::{Keyword, Span, Token, TokenType};
 use crate::value::{Ambient, Assoc, OpSig};
-use im::{HashMap, hashmap};
+use im::{hashmap, HashMap};
 use ordered_float::NotNan;
 use std::fmt::Display;
 use std::str::FromStr;
@@ -826,6 +826,20 @@ impl Parser {
             }) => return self.parse_var(i, start_span),
 
             Some(Token {
+                token_type: TokenType::LBrack,
+                ..
+            }) => {
+                if self.peek_type(0) == Some(&TokenType::RBrack) {
+                    self.next();
+                    ExprKind::ListType(None)
+                } else {
+                    let el = self.parse_expr_pratt(0.)?;
+                    self.expect(TokenType::RBrack)?;
+                    ExprKind::ListType(Some(Box::new(el)))
+                }
+            }
+
+            Some(Token {
                 token_type: TokenType::LBrace,
                 ..
             }) => return self.parse_env(),
@@ -876,16 +890,7 @@ impl Parser {
             }
 
             Some(Token {
-                token_type: TokenType::Op(op),
-                ..
-            }) if self.op_table.contains_key(&OpSig::Prefix(op.clone())) => {
-                let (_, bp_r) = self.binding_power(OpSig::Prefix(op.clone()));
-                let rhs = self.parse_expr_pratt(bp_r)?;
-                ExprKind::Operation(op.clone(), vec![rhs])
-            }
-
-            Some(Token {
-                token_type: TokenType::LBrack,
+                token_type: TokenType::Op(_),
                 ..
             }) => {
                 if self.peek_type(0) == Some(&TokenType::RBrack) {
@@ -931,6 +936,7 @@ impl Parser {
         my_parser.op_table.extend(op_table);
         let result = my_parser.parse_expr_pratt(min_bp)?;
         self.pos = my_parser.pos;
+        self.dot_is_separator = my_parser.dot_is_separator;
         Ok(result)
     }
 
@@ -982,4 +988,3 @@ impl Parser {
         Ok(lhs)
     }
 }
-

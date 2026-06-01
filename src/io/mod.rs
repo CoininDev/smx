@@ -154,11 +154,11 @@ impl IoResource {
     pub fn import(&self, arg: Value, amb: &mut Ambient) -> EvalResult<Value> {
         fn env_error() -> EvalResult<Value> {
             Err(eval_error!(GenericError(format!(
-                "
+		"
             expected env for IO.import with:
             file ~ string *
             skip_underscored ~ bool
-        "
+            "
             ))))
         }
 

@@ -1,4 +1,5 @@
-use crate::*;
+use smx::{ast::*, *};
+
 
 #[test]
 fn test_expression_spans() {

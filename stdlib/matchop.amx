@@ -1,10 +1,9 @@
-__match_y = \self. \val. \((pat, expr), rest). eval (
-  zip_env (pat, val) != nil ? '(zip_env (pat, val) :: expr),
-  rest != nil               ? '(self self val rest),
-                              'nil
-);
+__match_y = \self. \val. \((pat, expr), rest).
+  if zip_env (pat, val) != nil then zip_env (pat, val) :: expr
+  else if rest != nil          then self self val rest
+  else nil
+;
 
-op right 3.7 (a -> b) = a, b;
+op nonassoc 2.7 (a -> b) = a, b;
+op left 3 (a ?> b) = __match_y __match_y a b;
 
-_match = __match_y __match_y;
-op left 3 (a ?> b) = _match a b;
