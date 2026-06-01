@@ -1,3 +1,4 @@
-_ @{IO} = IO.import {file = "scratch/temp.smx";}:\_. "cu";
+_ @{IO} = IO.import {file = "scratch/temp1.smx";};
+temp2_result = 1 -> 2, 3;
 
-_ = 67;
+result = {temp1 = temp1_result; temp2 = temp2_result;};

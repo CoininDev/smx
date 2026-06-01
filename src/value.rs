@@ -40,11 +40,14 @@ pub enum OpSig {
 
 impl Ambient {
     pub fn extend(&mut self, other: &Ambient) {
+        eprintln!("[DEBUG] extend: Before - op_table has {} operators", self.env.op_table.len());
+        eprintln!("[DEBUG] extend: Other's op_table has {} operators", other.env.op_table.len());
         self.env.vars.extend(other.env.vars.clone());
         self.env.rsrcs.extend(other.env.rsrcs.clone());
         self.env.op_table.extend(other.env.op_table.clone());
         self.natives.extend(other.natives.clone());
         self.custom_resources.extend(other.custom_resources.clone());
+        eprintln!("[DEBUG] extend: After - op_table has {} operators", self.env.op_table.len());
     }
 
     pub fn eject(&mut self, other: &Ambient) {

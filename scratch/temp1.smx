@@ -1,0 +1,2 @@
+op right 3.7 (a -> b) = a, b;
+temp1_result = 1 -> 2, 3;

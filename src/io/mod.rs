@@ -100,9 +100,10 @@ impl IoResource {
                         buf.pop();
                         Ok(Value::Str(buf))
                     }
-                    Err(e) => Ok(Value::Environment(
-                        hashmap! {"read_failed".into() =>Value::Str(e.to_string())},
-                    )),
+                    Err(e) => Ok(Value::Environment(Environment {
+                        vars:hashmap! {"read_failed".into() =>Value::Str(e.to_string())},
+                        ..Default::default()
+                    })),
                 }
             }
             other => Err(eval_error!(WrongTypes(
@@ -119,9 +120,10 @@ impl IoResource {
                 let content = match std::fs::read_to_string(&name) {
                     Ok(t) => t,
                     Err(e) => {
-                        return Ok(Value::Environment(hashmap! {
+                        return Ok(Value::Environment(Environment {
+                        vars:hashmap! {
                             "import_as_env_failed".into() => Value::Str(e.to_string())
-                        }));
+                        }, ..Default::default()}));
                     }
                 };
                 let content = format!("{{{content}}}");
@@ -164,12 +166,12 @@ impl IoResource {
 
         match arg {
             Value::Environment(env) => {
-                let file = match env.get("file") {
+                let file = match env.vars.get("file") {
                     Some(Value::Str(x)) => x,
                     _ => return env_error(),
                 };
 
-                let skip_underscored = match env.get("skip_underscored") {
+                let skip_underscored = match env.vars.get("skip_underscored") {
                     Some(Value::Bool(x)) => x.clone(),
                     _ => false,
                 };
@@ -177,13 +179,15 @@ impl IoResource {
                 let content = match std::fs::read_to_string(&file) {
                     Ok(t) => t,
                     Err(e) => {
-                        return Ok(Value::Environment(hashmap! {
+                        return Ok(Value::Environment(
+                            Environment {
+                        vars:hashmap! {
                             "import_failed".into() => Value::Str(e.to_string())
-                        }));
+                        }, ..Default::default()}));
                     }
                 };
 
-                let mut new_amb: Ambient = util_eval_program_ambient_with_op_table(&content, &amb.op_table)
+                let mut new_amb: Ambient = util_eval_program_ambient_with_op_table(&content, &amb.env.op_table)
                     .map_err(|err| {
                         let (mut e, span) = match err {
                             SmxError::Eval(e) => (e, None),
@@ -203,12 +207,13 @@ impl IoResource {
 
                 if skip_underscored {
                     let va = new_amb
+                        .env
                         .vars
                         .into_iter()
                         .filter(|(k, _)| !k.starts_with("_"))
                         .collect::<im::HashMap<String, Value>>();
 
-                    new_amb.vars = va;
+                    new_amb.env.vars = va;
                 }
 
                 amb.extend(&new_amb);
@@ -225,7 +230,9 @@ impl IoResource {
 
     pub fn import_smxlib(&self, _: Value, amb: &mut Ambient) -> EvalResult<Value> {
         match std::env::var("SMXLIB_PATH") {
-            Ok(var) => self.import(Value::Environment(hashmap! {"file".into() => Value::Str(format!("{var}/smx.smx")), "skip_underscored".into() => Value::Bool(true)}), amb),
+            Ok(var) => self.import(Value::Environment(Environment {
+                        vars: hashmap! {"file".into() => Value::Str(format!("{var}/smx.smx")), "skip_underscored".into() => Value::Bool(true)}
+                        ,..Default::default()}), amb),
             Err(cu) => Err(eval_error!(GenericError(format!("SMXLIB_PATH: {}", cu)))),
         }
     }
@@ -245,11 +252,12 @@ impl IoResource {
                 let output = cmd
                     .output()
                     .map_err(|e| eval_error!(GenericError(e.to_string())))?;
-                Ok(Value::Environment(hashmap! {
+                Ok(Value::Environment(Environment {
+                        vars:hashmap! {
                     "stdout".into() => Value::Str(crop_newline(String::from_utf8_lossy(&output.stdout).to_string())),
                     "stderr".into() => Value::Str(crop_newline(String::from_utf8_lossy(&output.stderr).to_string())),
                     "status".into() => Value::Num(mount_num(output.status.code().unwrap_or(0).into()).unwrap()),
-                }))
+                }, ..Default::default()}))
             }
             other => Err(eval_error!(WrongTypes(
                 "IO.run".into(),
@@ -273,17 +281,17 @@ impl IoResource {
 
         match arg {
             Value::Environment(env) => {
-                let min = match env.get("min") {
+                let min = match env.vars.get("min") {
                     Some(&Value::Num(a)) => a,
                     _ => mount_num(0f64).unwrap(),
                 };
 
-                let max = match env.get("max") {
+                let max = match env.vars.get("max") {
                     Some(&Value::Num(a)) => a,
                     _ => mount_num(1f64).unwrap(),
                 };
 
-                let integer = match env.get("integer") {
+                let integer = match env.vars.get("integer") {
                     Some(&Value::Bool(a)) => a,
                     _ => false,
                 };
@@ -328,10 +336,11 @@ impl IoResource {
                 let start = Instant::now();
                 let res = eval_expr(exp, amb)?;
                 let time = start.elapsed();
-                Ok(Value::Environment(hashmap!{
+                Ok(Value::Environment(Environment {
+                        vars:hashmap!{
                     "secs".into() => Value::Num(mount_num(time.as_secs_f64()).unwrap()),
                     "result".into() => res,
-                }))
+                }, ..Default::default()}))
             }
             other => Err(eval_error!(WrongTypes(
                 "IO.time".into(),
@@ -346,9 +355,10 @@ impl IoResource {
             Value::Num(n) => {
                 let time = n.into_inner();
                 sleep(Duration::from_secs_f64(time));
-                return Ok(Value::Environment(
+                return Ok(Value::Environment(Environment {
+                        vars:
                     hashmap!{"ok".into() => Value::Bool(true)
-                    }));
+                    },..Default::default()}));
             }
             other => Err(eval_error!(WrongTypes(
                 "IO.wait".into(),
@@ -364,14 +374,18 @@ pub fn util_eval_program_ambient_str(input: &str) -> Result<Ambient, SmxError> {
 }
 
 pub fn util_eval_program_ambient_with_op_table(input: &str, op_table: &im::HashMap<OpSig, (Assoc, NotNan<f64>)>) -> Result<Ambient, SmxError> {
+    eprintln!("[DEBUG] util_eval_program_ambient_with_op_table: Called with op_table containing {} operators", op_table.len());
     let tks = Lexer::new(input)
         .collect::<Result<Vec<Token>, LexerError>>()?;
     let mut amb = Ambient::default();
-    amb.op_table = op_table.clone();
+    amb.env.op_table = op_table.clone();
+    eprintln!("[DEBUG] util_eval_program_ambient_with_op_table: Before parse, op_table has {} operators", amb.env.op_table.len());
     let program = Parser::with_ambient(tks, &amb)
         .parse_program()?;
 
-    eval_program_ambient_with_initial(program, amb).map_err(|e| e.into())
+    let result_amb = eval_program_ambient_with_initial(program, amb)?;
+    eprintln!("[DEBUG] util_eval_program_ambient_with_op_table: After eval, op_table has {} operators", result_amb.env.op_table.len());
+    Ok(result_amb)
 }
 
 pub fn util_eval_expr_str(input: &str, amb: &Ambient) -> Result<Value, SmxError> {
@@ -383,11 +397,13 @@ pub fn util_eval_expr_str(input: &str, amb: &Ambient) -> Result<Value, SmxError>
     eval_expr(
         expr,
         &mut Ambient {
-            vars: amb.vars.clone(),
-            rsrcs: amb.rsrcs.clone(),
+            env: Environment{
+                vars: amb.env.vars.clone(),
+                rsrcs: amb.env.rsrcs.clone(),
+                op_table: amb.env.op_table.clone(),
+            },
             natives: amb.natives.clone(),
             custom_resources: amb.custom_resources.clone(),
-            op_table: amb.op_table.clone(),
         },
     )
     .map_err(|e| e.into())

@@ -1,3 +1,0 @@
-_ @{IO} = IO.import {file = "scratch/temp.smx";};
-
-result = 1 -> 2, 3;

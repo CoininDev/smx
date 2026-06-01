@@ -138,7 +138,9 @@ pub fn eval_assign_imut(a: Assign, amb: &Ambient) -> EvalResult<Ambient> {
 }
 pub fn eval_assign(a: Assign, amb: &mut Ambient) -> EvalResult<()> {
     if let ExprKind::OpSigVar(sig, assoc, prec) = &a.0.kind {
+        eprintln!("[DEBUG] eval_assign: Adding operator {:?} with assoc={:?}, prec={}", sig, assoc, prec);
         amb.env.op_table.insert(sig.clone(), (*assoc, *prec));
+        eprintln!("[DEBUG] eval_assign: op_table now has {} operators", amb.env.op_table.len());
     }
 
     if let ExprKind::Var(m) = &a.0.kind {

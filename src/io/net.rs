@@ -19,7 +19,7 @@ enum NetNativeObj {
     Tcp {val: TcpStream, receive: Value},
     Test,
 }
-
+#[derive(Debug)]
 pub struct NetIoObj;
 impl IoObject for NetIoObj {
     fn redirect(&mut self, function:Vec<String>, value: Value, amb: &mut Ambient)
@@ -52,13 +52,13 @@ impl NetIoObj {
         }
         match arg {
             Value::Environment(env) => {
-                let address = match env.get("address") {
+                let address = match env.vars.get("address") {
                     Some(Value::Str(x)) => x, 
                     _ => return wrong_types("address"),
                 };
 
-                let receive = match env.get("receive") {
-                    Some(Value::Lambda(_,_,_,_)) => env.get("receive").unwrap(),
+                let receive = match env.vars.get("receive") {
+                    Some(Value::Lambda(_,_,_,_)) => env.vars.get("receive").unwrap(),
                     _ => return wrong_types("receive")
                 };
 
