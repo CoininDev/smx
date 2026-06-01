@@ -33,7 +33,7 @@ pub fn eval(code: &str, mut amb: &mut Ambient) -> Result<Value, SmxError> {
         (Ok(assign), _) => {
 
             // eval_resource actively detects and ignores other assigns
-            eval_resource(&assign, &mut amb.rsrcs)?;
+            eval_resource(&assign, &mut amb.env.rsrcs)?;
 
             // eval_assign actively detects and ignores resources
             eval_assign(assign, &mut amb)?;

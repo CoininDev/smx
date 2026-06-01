@@ -1,4 +1,5 @@
 use crate::{ast::*, eval::*};
+use im::HashMap;
 use num_bigint::{BigInt, BigUint};
 use ordered_float::NotNan;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -10,13 +11,18 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-#[derive(Default, Clone)]
+#[derive(Debug, Default, Clone, PartialEq, Eq, Hash)]
+pub struct Environment { 
+    pub vars : HashMap<String, Value>,
+    pub rsrcs: HashMap<String, Value>,
+    pub op_table: im::HashMap<OpSig, (Assoc, NotNan<f64>)>,
+}
+
+#[derive(Debug, Default, Clone)]
 pub struct Ambient {
-    pub vars: Environment,
-    pub rsrcs: Environment,
+    pub env: Environment, 
     pub natives: Vec<Arc<dyn Any + Send + Sync>>,
     pub custom_resources: Vec<Arc<Mutex<dyn IoObject + Send>>>,
-    pub op_table: im::HashMap<OpSig, (Assoc, NotNan<f64>)>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -34,41 +40,41 @@ pub enum OpSig {
 
 impl Ambient {
     pub fn extend(&mut self, other: &Ambient) {
-        self.vars.extend(other.vars.clone());
-        self.rsrcs.extend(other.rsrcs.clone());
+        self.env.vars.extend(other.env.vars.clone());
+        self.env.rsrcs.extend(other.env.rsrcs.clone());
+        self.env.op_table.extend(other.env.op_table.clone());
         self.natives.extend(other.natives.clone());
         self.custom_resources.extend(other.custom_resources.clone());
-        self.op_table.extend(other.op_table.clone());
     }
 
     pub fn eject(&mut self, other: &Ambient) {
-        for k in other.vars.keys() {
-            self.vars.remove(k);
+        for k in other.env.vars.keys() {
+            self.env.vars.remove(k);
         }
-        for k in other.rsrcs.keys() {
-            self.rsrcs.remove(k);
+        for k in other.env.rsrcs.keys() {
+            self.env.rsrcs.remove(k);
         }
-        for k in other.op_table.keys() {
-            self.op_table.remove(k);
+        for k in other.env.op_table.keys() {
+            self.env.op_table.remove(k);
         }
         // Note: not ejecting natives or custom_resources, as they might be shared
     }
 
-    pub fn eject_vars(&mut self, vars: &Environment) {
-        for k in vars.keys() {
-            self.vars.remove(k);
+    pub fn eject_vars(&mut self, env: &Environment) {
+        for k in env.vars.keys() {
+            self.env.vars.remove(k);
         }
     }
 
     pub fn add_custom_resource(&mut self, res: Arc<Mutex<dyn IoObject + Send>>) {
         let name = res.lock().unwrap().name().to_string();
         self.custom_resources.push(res.clone());
-        self.rsrcs
+        self.env.rsrcs
             .insert(name.clone(), Value::Builtin(name.clone()));
     }
 }
 
-pub trait IoObject: Send + Sync + Any {
+pub trait IoObject: Send + Sync + Any + Debug {
     fn redirect(
         &mut self,
         function: Vec<String>,
@@ -281,7 +287,12 @@ impl std::fmt::Display for Value {
             Self::Native(a) => write!(f, "<#{a:02}>"),
             Self::Environment(e) => {
                 write!(f, "{{")?;
-                for (k, v) in e {
+                for (k, v) in e.clone().rsrcs {
+                    write!(f, " resource {k} =")?;
+                    write!(f, " {v}; ")?;
+                }
+
+                for (k, v) in e.clone().vars {
                     write!(f, " {k} =")?;
                     write!(f, " {v}; ")?;
                 }
@@ -331,7 +342,9 @@ impl std::ops::Add for Value {
             (Value::Str(s), other) => Value::Str(format!("{s}{other}")),
             (other, Value::Str(s)) => Value::Str(format!("{other}{s}")),
             (Value::Environment(mut a), Value::Environment(b)) => {
-                a.extend(b);
+                a.vars.extend(b.vars);
+                a.rsrcs.extend(b.rsrcs);
+                a.op_table.extend(b.op_table);
                 Value::Environment(a)
             }
             _ => Value::Nil,
@@ -387,13 +400,15 @@ impl std::ops::Sub for Value {
                 for k in keys {
                     match k {
                         Value::Str(s) => {
-                            a.remove(&s);
+                            a.vars.remove(&s);
+                            a.rsrcs.remove(&s);
                         }
                         Value::Frozen(Expression {
                             kind: ExprKind::Var(v),
                             span: _,
                         }) if v.len() == 1 => {
-                            a.remove(&v[0]);
+                            a.vars.remove(&v[0]);
+                            a.rsrcs.remove(&v[0]);
                         }
                         _ => {}
                     }
@@ -544,11 +559,20 @@ impl Serialize for Value {
 
                 // Convert im::HashMap to a standard map for serialization
                 let mut data_map = serde_json::Map::new();
-                for (k, v) in _env.iter() {
+                let mut vars_map = serde_json::Map::new();
+                for (k, v) in _env.vars.iter() {
                     let serialized = serde_json::to_value(v)
                         .map_err(|_| serde::ser::Error::custom("Failed to serialize value"))?;
-                    data_map.insert(k.clone(), serialized);
+                    vars_map.insert(k.clone(), serialized);
                 }
+                let mut rsrcs_map = serde_json::Map::new();
+                for (k, v) in _env.rsrcs.iter() {
+                    let serialized = serde_json::to_value(v)
+                        .map_err(|_| serde::ser::Error::custom("Failed to serialize value"))?;
+                    rsrcs_map.insert(k.clone(), serialized);
+                }
+                data_map.insert("vars".to_string(), serde_json::Value::Object(vars_map));
+                data_map.insert("vars".to_string(), serde_json::Value::Object(rsrcs_map));
 
                 map.serialize_entry("data", &data_map)?;
                 map.end()
@@ -823,11 +847,18 @@ impl<'de> Deserialize<'de> for Value {
                             .as_object()
                             .ok_or_else(|| de::Error::custom("expected object for environment"))?;
 
-                        let mut env = im::HashMap::new();
-                        for (k, v) in env_map.iter() {
+                        let mut env = Environment::default();
+                        let vars = env_map.get("vars").map(|a| a.as_object()).expect("Not an env").unwrap();
+                        let rsrcs = env_map.get("rsrcs").map(|a| a.as_object()).expect("Not an env").unwrap();
+                        for (k, v) in vars {
                             let value: Value = serde_json::from_value(v.clone())
                                 .map_err(|e| de::Error::custom(e.to_string()))?;
-                            env.insert(k.clone(), value);
+                            env.vars.insert(k.clone(), value);
+                        }
+                        for (k, v) in rsrcs {
+                            let value: Value = serde_json::from_value(v.clone())
+                                .map_err(|e| de::Error::custom(e.to_string()))?;
+                            env.rsrcs.insert(k.clone(), value);
                         }
                         Ok(Value::Environment(env))
                     }

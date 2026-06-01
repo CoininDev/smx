@@ -1,0 +1,3 @@
+_ @{IO} = IO.import {file = "scratch/temp.smx";}:\_. "cu";
+
+_ = 67;

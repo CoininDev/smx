@@ -16,7 +16,7 @@ pub struct REPL {
 impl REPL {
     pub fn new() -> Self {
         let mut ambient = Ambient::default();
-        ambient.vars = ambient.vars.union( hashmap!{
+        ambient.env.vars = ambient.env.vars.union( hashmap!{
             "IO".into() => Value::Builtin("IO".into())
         });
         Self {
@@ -35,12 +35,12 @@ impl REPL {
                     return true;
                 }
                 if line == "all" {
-                    for (k,v) in &self.ambient.vars {
+                    for (k,v) in &self.ambient.env.vars {
                         println!("{k} = {v};");
                     }
 
                     println!("resources:");
-                    for (k,v) in &self.ambient.rsrcs {
+                    for (k,v) in &self.ambient.env.rsrcs {
                         println!("{k} = {v};");
                     }
 
@@ -75,7 +75,7 @@ impl REPL {
 
                 match (assign, expr) {
                     (Ok(assign), _) => {
-                        if let Err(e) = eval_resource(&assign, &mut self.ambient.rsrcs) {
+                        if let Err(e) = eval_resource(&assign, &mut self.ambient.env.rsrcs) {
                             let err = SmxError::Eval(e);
                             let report = if err.has_source_code() {
                                 miette::Report::from(err)

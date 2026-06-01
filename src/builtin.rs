@@ -1,5 +1,5 @@
 use im::hashmap;
-use std::str::FromStr;
+use std::{default, str::FromStr};
 use strum::IntoEnumIterator;
 use num_traits::ToPrimitive;
 use ordered_float::NotNan;
@@ -106,9 +106,10 @@ impl IBuiltin for TryBuiltin {
         match arg {
             Value::Pair(func, arg) => match apply(*func, *arg, &mut amb.clone()) {
                 Ok(x) => Ok(x),
-                _ => Ok(Value::Environment(
-                    hashmap! {"err".into() => Value::Bool(true)},
-                )),
+                _ => Ok(Value::Environment(Environment{
+                    vars: hashmap! {"err".into() => Value::Bool(true)},
+                    ..Default::default()
+                })),
             },
             other => Err(eval_error!(WrongTypes(
                 "try".into(),
@@ -148,7 +149,7 @@ impl IBuiltin for HasBuiltin {
     fn call(&self, arg: Value, _amb: &Ambient) -> EvalResult<Value> {
         match arg {
             Value::Pair(box Value::Environment(env), box Value::Str(name)) => {
-                Ok(Value::Bool(env.contains_key(&name)))
+                Ok(Value::Bool(env.vars.contains_key(&name)))
             }
             other => Err(eval_error!(WrongTypes(
                 "has".into(),
@@ -168,7 +169,7 @@ impl IBuiltin for ZipEnvBuiltin {
     fn call(&self, arg: Value, _amb: &Ambient) -> EvalResult<Value> {
         match arg {
             Value::Pair(box Value::Pattern(pat), a) => match eval_pattern_pair(pat, *a) {
-                Ok(v) => Ok(Value::Environment(v)),
+                Ok(v) => Ok(Value::Environment(Environment { vars: v, ..Default::default()})),
                 Err(_) => Ok(Value::Nil),
             },
 
@@ -239,9 +240,10 @@ impl IBuiltin for ConvertBuiltin {
                         if let Ok(num) = s.parse() {
                             Ok(Value::Num(mount_num(num)?))
                         } else {
-                            Ok(Value::Environment(
-                                hashmap! {"nan".into() => Value::Bool(true)},
-                            ))
+                            Ok(Value::Environment( Environment {
+                                vars: hashmap! {"nan".into() => Value::Bool(true)},
+                                ..Default::default()
+                            }))
                         }
                     }
                     Value::Bool(b) => Ok(Value::Num(mount_num(if b { 1. } else { 0. })?)),
@@ -270,7 +272,7 @@ impl IBuiltin for ConvertBuiltin {
                 [s] if s == "list" => match *val {
                     Value::Environment(env) => {
                         let mut res = Value::Nil;
-                        for (k, v) in env {
+                        for (k, v) in env.vars {
                             res = Value::Pair(
                                 Box::new(Value::Pair(Box::new(Value::Str(k)), Box::new(v))),
                                 Box::new(res),
@@ -285,17 +287,17 @@ impl IBuiltin for ConvertBuiltin {
                     ))),
                 },
                 [s] if s == "env" => {
-                    let mut env = hashmap! {};
+                    let mut vars = hashmap! {};
                     let mut current = &*val;
                     while let Value::Pair(car, cdr) = current {
                         if let Value::Pair(k, v) = &**car {
                             if let Value::Str(key) = &**k {
-                                env.insert(key.clone(), (**v).clone());
+                                vars.insert(key.clone(), (**v).clone());
                             }
                         }
                         current = &**cdr;
                     }
-                    Ok(Value::Environment(env))
+                    Ok(Value::Environment(Environment{vars, ..Default::default()}))
                 }
                 _ => {
                     if t.len() == 1 {
