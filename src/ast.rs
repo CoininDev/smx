@@ -243,7 +243,7 @@ impl Parser {
 
     pub fn with_ambient(tokens: Vec<Token>, amb: &Ambient) -> Self {
         let mut p = Self::new(tokens);
-        for (sig, (assoc, prec)) in &amb.op_table {
+        for (sig, (assoc, prec)) in &amb.env.op_table {
             p.op_table
                 .insert(sig.clone(), Operator::new(*assoc, prec.into_inner() as f32));
         }
