@@ -4,6 +4,6 @@ __match_y = \self. \val. \((pat, expr), rest).
   else nil
 ;
 
-op nonassoc 2.7 (a -> b) = a, b;
+op nonassoc 3.7 (a -> b) = a, b;
 op left 3 (a ?> b) = __match_y __match_y a b;
 

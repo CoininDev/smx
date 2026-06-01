@@ -826,20 +826,6 @@ impl Parser {
             }) => return self.parse_var(i, start_span),
 
             Some(Token {
-                token_type: TokenType::LBrack,
-                ..
-            }) => {
-                if self.peek_type(0) == Some(&TokenType::RBrack) {
-                    self.next();
-                    ExprKind::ListType(None)
-                } else {
-                    let el = self.parse_expr_pratt(0.)?;
-                    self.expect(TokenType::RBrack)?;
-                    ExprKind::ListType(Some(Box::new(el)))
-                }
-            }
-
-            Some(Token {
                 token_type: TokenType::LBrace,
                 ..
             }) => return self.parse_env(),
@@ -889,8 +875,17 @@ impl Parser {
                 }
             }
 
+                        Some(Token {
+                token_type: TokenType::Op(op),
+                ..
+            }) if self.op_table.contains_key(&OpSig::Prefix(op.clone())) => {
+                let (_, bp_r) = self.binding_power(OpSig::Prefix(op.clone()));
+                let rhs = self.parse_expr_pratt(bp_r)?;
+                ExprKind::Operation(op.clone(), vec![rhs])
+            }
+
             Some(Token {
-                token_type: TokenType::Op(_),
+                token_type: TokenType::LBrack,
                 ..
             }) => {
                 if self.peek_type(0) == Some(&TokenType::RBrack) {
@@ -914,6 +909,7 @@ impl Parser {
                     }
                 }
             }
+
 
             Some(token) => {
                 return Err(self.last_error(ParsingErrorType::InvalidExpression(format!(

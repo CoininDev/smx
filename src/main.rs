@@ -114,6 +114,19 @@ fn main() {
             }
         }
 
+        Some(a) if a == "-l" => {
+            let content = match args.get(1) {
+                Some(x)   => x,
+                None  => panic!("Erro: Não tem nada na posição 1"),
+            };
+
+            let tks = tokenize(content.as_str()).expect("Tokenizer error");
+
+            for tk in tks {
+                println!("{tk}");
+            }
+        }
+
         None | Some(_) => usage(),
     }
 }
